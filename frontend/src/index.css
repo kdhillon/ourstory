@@ -1,0 +1,84 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #f8f9fa;
+  color: #202122;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.wiki-content {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: #202122;
+}
+.wiki-content p { margin-bottom: 12px; }
+.wiki-content p:last-child { margin-bottom: 0; }
+.wiki-content a { color: #3366cc; text-decoration: none; }
+.wiki-content a:hover { text-decoration: underline; }
+.wiki-content ul, .wiki-content ol { padding-left: 20px; margin-bottom: 12px; }
+.wiki-content li { margin-bottom: 3px; }
+.wiki-content b, .wiki-content strong { font-weight: 600; }
+.wiki-content i, .wiki-content em { font-style: italic; }
+.wiki-content h2, .wiki-content h3, .wiki-content h4 {
+  font-weight: 700;
+  color: #202122;
+  margin: 12px 0 6px;
+}
+.wiki-content h2 { font-size: 14px; }
+.wiki-content h3 { font-size: 13px; }
+.wiki-content h4 { font-size: 12px; }
+.wiki-content table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.wiki-content th, .wiki-content td {
+  border: 1px solid rgba(0,0,0,0.1);
+  padding: 4px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.wiki-content th { background: #f8f9fa; font-weight: 600; }
+.wiki-content figure { display: none; }
+.wiki-content .thumb { display: none; }
+.wiki-content .infobox { display: none; }
+.wiki-content .infobox-full-data { display: none; }
+.wiki-content sup { font-size: 10px; vertical-align: super; }
+.wiki-content .mw-empty-elt { display: none; }
+.wiki-content .mw-editsection { display: none; }
+.wiki-content .toc { display: none; }
+.wiki-content .navbox { display: none; }
+.wiki-content .noprint { display: none; }
+.wiki-content .sistersitebox { display: none; }
+.wiki-content .metadata { display: none; }
+.wiki-content .hatnote { font-style: italic; color: #54595d; margin-bottom: 10px; font-size: 12px; }
+
+.resize-handle {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  z-index: 10;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 2px; top: 50%;
+  transform: translateY(-50%);
+  width: 2px; height: 40px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.resize-handle:hover::after {
+  background: rgba(0,0,0,0.18);
+}

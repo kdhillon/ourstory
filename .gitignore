@@ -6,3 +6,4 @@ dist/
 
 # Generated data file — produced by export script
 frontend/src/data/seed.geojson
+__pycache__/

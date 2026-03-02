@@ -21,6 +21,7 @@ const DATABASE_URL =
 
 interface EventRow {
   id: string;
+  slug: string | null;
   title: string;
   wikipedia_title: string;
   wikipedia_summary: string | null;
@@ -34,11 +35,16 @@ interface EventRow {
   lng: number;
   lat: number;
   location_name: string;
+  location_slug: string | null;
   categories: string[];
+  p31_qids: string[];
+  data_version: number;
+  pipeline_run: string;
 }
 
-interface CityRow {
+interface LocationRow {
   id: string;
+  slug: string | null;
   name: string;
   wikipedia_title: string;
   wikipedia_summary: string | null;
@@ -50,6 +56,10 @@ interface CityRow {
   founded_range_min: number | null;
   founded_range_max: number | null;
   dissolved_year: number | null;
+  location_type: string;
+  p31_qids: string[];
+  data_version: number;
+  pipeline_run: string;
 }
 
 function displayYear(year: number): string {
@@ -63,10 +73,11 @@ async function main() {
   await client.connect();
   console.log('Connected to database');
 
-  // -- Events (join to cities for coordinates when not a point event) --
+  // -- Events (join to locations for coordinates and location_slug) --
   const eventsResult = await client.query<EventRow>(`
     SELECT
       e.id,
+      e.slug,
       e.title,
       e.wikipedia_title,
       e.wikipedia_summary,
@@ -77,18 +88,30 @@ async function main() {
       e.date_range_min,
       e.date_range_max,
       e.location_level,
-      CASE WHEN e.location_level = 'point' THEN e.lng ELSE c.lng END AS lng,
-      CASE WHEN e.location_level = 'point' THEN e.lat ELSE c.lat END AS lat,
+      CASE WHEN e.location_level = 'point' THEN e.lng ELSE l.lng END AS lng,
+      CASE WHEN e.location_level = 'point' THEN e.lat ELSE l.lat END AS lat,
       e.location_name,
-      e.categories
+      l.slug AS location_slug,
+      e.categories,
+      e.p31_qids,
+      e.data_version,
+      e.pipeline_run
     FROM events e
-    LEFT JOIN cities c ON e.location_id = c.id
+    LEFT JOIN locations l ON e.location_wikidata_qid = l.wikidata_qid
+    WHERE (e.location_level = 'point' AND e.lng IS NOT NULL)
+       OR (e.location_wikidata_qid IS NOT NULL AND l.wikidata_qid IS NOT NULL)
     ORDER BY e.year_start
   `);
 
-  // -- Cities --
-  const citiesResult = await client.query<CityRow>(`
-    SELECT * FROM cities ORDER BY founded_year NULLS LAST
+  // -- Locations (cities only for map pins) --
+  const locationsResult = await client.query<LocationRow>(`
+    SELECT
+      id, slug, name, wikipedia_title, wikipedia_summary, wikipedia_url,
+      lng, lat, founded_year, founded_is_fuzzy,
+      founded_range_min, founded_range_max, dissolved_year, location_type,
+      p31_qids, data_version, pipeline_run
+    FROM locations
+    ORDER BY founded_year NULLS LAST
   `);
 
   await client.end();
@@ -111,6 +134,7 @@ async function main() {
       properties: {
         featureType: 'event',
         id: row.id,
+        slug: row.slug ?? row.wikipedia_title.replace(/ /g, '_'),
         title: row.title,
         wikipediaTitle: row.wikipedia_title,
         wikipediaSummary: row.wikipedia_summary ?? '',
@@ -122,15 +146,22 @@ async function main() {
         dateRangeMax: row.date_range_max,
         locationLevel: row.location_level,
         locationName: row.location_name,
+        locationSlug: row.location_slug ?? null,
         categories: row.categories,
         primaryCategory: row.categories[0] ?? 'unknown',
+        wikidataClasses: row.p31_qids ?? [],
         yearDisplay: displayYear(row.year_start),
+        dataVersion: row.data_version,
+        pipelineRun: row.pipeline_run,
       },
     });
   }
 
-  // City features
-  for (const row of citiesResult.rows) {
+  // Location features (cities, regions, and countries — all are first-class entities)
+  for (const row of locationsResult.rows) {
+    if (row.lng == null || row.lat == null) continue;
+
+    const locType = row.location_type as 'city' | 'region' | 'country';
     features.push({
       type: 'Feature',
       geometry: {
@@ -138,8 +169,9 @@ async function main() {
         coordinates: [Number(row.lng), Number(row.lat)],
       },
       properties: {
-        featureType: 'city',
+        featureType: locType,
         id: row.id,
+        slug: row.slug ?? row.wikipedia_title.replace(/ /g, '_'),
         title: row.name,
         wikipediaTitle: row.wikipedia_title,
         wikipediaSummary: row.wikipedia_summary ?? '',
@@ -150,9 +182,14 @@ async function main() {
         dateRangeMin: row.founded_range_min,
         dateRangeMax: row.founded_range_max,
         locationName: row.name,
-        categories: ['city'],
-        primaryCategory: 'city',
+        locationSlug: null,
+        categories: [locType],
+        primaryCategory: locType,
         yearDisplay: row.founded_year != null ? displayYear(row.founded_year) : 'Unknown',
+        wikidataClasses: row.p31_qids ?? [],
+        ...(locType === 'city' ? { cityImportance: row.wikipedia_summary ? 'major' : 'minor' } : {}),
+        dataVersion: row.data_version,
+        pipelineRun: row.pipeline_run,
       },
     });
   }

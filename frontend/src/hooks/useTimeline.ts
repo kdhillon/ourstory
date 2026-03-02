@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { YEAR_MIN, YEAR_MAX } from '../types';
 
-const STEP_OPTIONS = [1, 5, 10, 25, 50, 100];
+const STEP_OPTIONS = [1, 5, 10, 25, 50, 100, 250];
 
 export function useTimeline() {
   const [currentYear, setCurrentYear] = useState(YEAR_MIN);
