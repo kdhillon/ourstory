@@ -29,6 +29,8 @@ app.add_middleware(
         "http://localhost:5173",   # Vite dev server
         "http://localhost:4173",   # Vite preview
         "http://localhost:3000",
+        "https://openhistory.app",
+        "https://www.openhistory.app",
     ],
     allow_methods=["GET", "PATCH", "OPTIONS"],
     allow_headers=["Content-Type"],
