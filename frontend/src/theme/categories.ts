@@ -85,19 +85,3 @@ export function getCategoryColor(category: Category): string {
   return CATEGORY_COLORS[category] ?? CATEGORY_COLORS.unknown;
 }
 
-/** Maki sprite icon name for each event category. Used on the map and in tag chips. */
-export const CATEGORY_ICON_NAMES: Partial<Record<Category, string>> = {
-  battle:      'danger',
-  war:         'danger',
-  politics:    'town_hall',
-  religion:    'place_of_worship',
-  disaster:    'volcano',
-  exploration: 'harbor',
-  science:     'rocket',
-  culture:     'park',
-};
-
-/** CDN URL for a Maki SVG icon (converts sprite underscore names to hyphenated CDN names). */
-export function makiIconUrl(spriteName: string): string {
-  return `https://raw.githubusercontent.com/mapbox/maki/main/icons/${spriteName.replace(/_/g, '-')}.svg`;
-}

@@ -45,7 +45,7 @@ function formatStepLabel(s: number): string {
 }
 
 const SPEED_OPTIONS = [1, 5, 10, 25, 50];
-const JUMP_YEARS = 5; // how many years the ±5 buttons jump
+const JUMP_STEPS = 5; // how many steps the ±5 buttons jump
 
 export function TimelineBar({
   currentDateInt,
@@ -77,14 +77,14 @@ export function TimelineBar({
 
   const cancel = useCallback(() => setEditing(false), []);
 
-  const jumpBack    = useCallback(() => onSeek(normalizeDateInt(currentDateInt - JUMP_YEARS * STEP_YEAR)), [currentDateInt, onSeek]);
-  const jumpForward = useCallback(() => onSeek(normalizeDateInt(currentDateInt + JUMP_YEARS * STEP_YEAR)), [currentDateInt, onSeek]);
+  const jumpBack    = useCallback(() => onSeek(normalizeDateInt(currentDateInt - JUMP_STEPS * stepSize)), [currentDateInt, stepSize, onSeek]);
+  const jumpForward = useCallback(() => onSeek(normalizeDateInt(currentDateInt + JUMP_STEPS * stepSize)), [currentDateInt, stepSize, onSeek]);
 
   return (
     <div style={styles.bar}>
       {/* Playback controls */}
       <div style={styles.controls}>
-        <button style={styles.jumpBtn} onClick={jumpBack} title={`Back ${JUMP_YEARS} years`}>−5</button>
+        <button style={styles.jumpBtn} onClick={jumpBack} title={`Back ${JUMP_STEPS} steps`}>−5</button>
         <button style={styles.stepBtn} onClick={() => onStep(-1)} title="Step back (←)">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M3 2v10M10.5 2L5 7l5.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -101,7 +101,7 @@ export function TimelineBar({
             <path d="M11 2v10M3.5 2L9 7 3.5 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
-        <button style={styles.jumpBtn} onClick={jumpForward} title={`Forward ${JUMP_YEARS} years`}>+5</button>
+        <button style={styles.jumpBtn} onClick={jumpForward} title={`Forward ${JUMP_STEPS} steps`}>+5</button>
       </div>
 
       {/* Slider — operates in dateInt space */}

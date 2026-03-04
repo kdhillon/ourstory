@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { FeatureProperties, Category } from '../types';
 import type { StackInfo } from './MapView';
-import { CATEGORY_COLORS, CATEGORY_LABELS, CATEGORY_ICON_NAMES, makiIconUrl } from '../theme/categories';
+import { CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
+import { CATEGORY_SVGS, colorSvg, svgDataUri } from '../theme/icons';
 import { displayYear, encodeDate, STEP_DAY, STEP_MONTH, STEP_YEAR } from '../hooks/useTimeline';
 import { WikiEditForm } from './WikiEditForm';
 
@@ -293,8 +294,9 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
       <div style={styles.header}>
         <div style={styles.headerLeft}>
           {feature.categories.map((cat) => {
-            const color = CATEGORY_COLORS[cat as Category] ?? '#9E9E9E';
-            const iconName = CATEGORY_ICON_NAMES[cat as Category];
+            const color   = CATEGORY_COLORS[cat as Category] ?? '#9E9E9E';
+            const rawSvg  = CATEGORY_SVGS[cat as Category];
+            const iconSrc = rawSvg ? svgDataUri(colorSvg(rawSvg, color)) : null;
             return (
               <span
                 key={cat}
@@ -308,19 +310,8 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
                   gap: 4,
                 }}
               >
-                {iconName && (
-                  <span style={{
-                    display: 'inline-block',
-                    width: 11,
-                    height: 11,
-                    background: color,
-                    maskImage: `url(${makiIconUrl(iconName)})`,
-                    WebkitMaskImage: `url(${makiIconUrl(iconName)})`,
-                    maskSize: 'contain',
-                    maskRepeat: 'no-repeat',
-                    maskPosition: 'center',
-                    flexShrink: 0,
-                  }} />
+                {iconSrc && (
+                  <img src={iconSrc} width={12} height={12} style={{ flexShrink: 0, display: 'block' }} />
                 )}
                 {CATEGORY_LABELS[cat as Category] ?? cat}
               </span>

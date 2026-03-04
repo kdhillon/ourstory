@@ -719,14 +719,25 @@ def main():
     # Step 3: Extract events
     # ------------------------------------------------------------------
     print("\n[Step 3] Extracting structured fields...")
+    import re as _re
+    _NOISE_TITLE = _re.compile(
+        r'^\d{4}(s)? in |\d{4}s?$|^list of |^history of ',
+        _re.IGNORECASE,
+    )
     events: list[dict] = []
+    noise_skipped = 0
     for qid in all_qids:
         entity = entities.get(qid)
         if not entity or entity.get("missing"):
             continue
         ev = extract_event(entity)
         if ev.get("title") and ev.get("wikipedia_title"):
+            if _NOISE_TITLE.match(ev["wikipedia_title"]):
+                noise_skipped += 1
+                continue
             events.append(ev)
+    if noise_skipped:
+        print(f"  Skipped {noise_skipped} Wikipedia meta-articles (year-in-X, lists, etc.)")
 
     print(f"  Extracted {len(events)} events with title + Wikipedia article.")
 

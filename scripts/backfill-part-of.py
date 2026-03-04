@@ -72,7 +72,7 @@ def main():
         cur.execute("""
             SELECT id, wikidata_qid FROM events
             WHERE wikidata_qid IS NOT NULL
-              AND (part_of_qids IS NULL OR part_of_qids = '{}')
+              AND part_of_qids IS NULL
             ORDER BY year_start
             %s
         """ % (f"LIMIT {args.limit}" if args.limit else ""))

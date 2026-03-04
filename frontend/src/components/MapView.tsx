@@ -2,10 +2,70 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import maplibregl, { Map, GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureProperties, Category } from '../types';
-import { CATEGORY_COLORS, CATEGORY_ICON_NAMES } from '../theme/categories';
+import { CATEGORY_COLORS } from '../theme/categories';
+import { CATEGORY_SVGS } from '../theme/icons';
 import { encodeDate, eventDateRange, STEP_YEAR } from '../hooks/useTimeline';
 
 const FADE_INT = 3 * STEP_YEAR; // 30000 — 3 years of fade in dateInt space
+
+// ─── Canvas icons ────────────────────────────────────────────────────────────
+//
+// Each event category gets a pre-rendered canvas image: colored circle + white
+// Lucide icon. Lucide SVGs are bundled at build time via ?raw imports in
+// icons.ts — no CDN requests, no CORS issues.
+//
+// Using a single image (vs separate circle + symbol layers) ensures the
+// background and icon always come from the same GeoJSON feature, preventing
+// mismatches when events stack at the same pixel.
+//
+const ICON_SIZE = 28; // canvas px; MapLibre icon-size scales this
+const catIconName = (cat: Category) => `ev-${cat}`;
+
+function loadCategoryIcons(map: Map): Promise<void> {
+  return Promise.all(
+    (Object.entries(CATEGORY_SVGS) as [Category, string][]).map(([category, rawSvg]) =>
+      new Promise<void>((resolve) => {
+        const color    = CATEGORY_COLORS[category];
+        const name     = catIconName(category);
+        // Lucide icons use stroke="currentColor"; replace with white
+        const whiteSvg = rawSvg.replace(/currentColor/g, 'white');
+        const blob     = new Blob([whiteSvg], { type: 'image/svg+xml' });
+        const url      = URL.createObjectURL(blob);
+
+        const img = new Image();
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+
+          const canvas  = document.createElement('canvas');
+          canvas.width  = ICON_SIZE;
+          canvas.height = ICON_SIZE;
+          const ctx = canvas.getContext('2d')!;
+          const cx  = ICON_SIZE / 2;
+          const r   = cx - 1.5;
+
+          // Colored background circle
+          ctx.beginPath();
+          ctx.arc(cx, cx, r, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          // White icon — Lucide SVGs are 24×24 viewBox, drawn at ~60% of canvas
+          const pad = Math.round(ICON_SIZE * 0.2);
+          ctx.drawImage(img, pad, pad, ICON_SIZE - pad * 2, ICON_SIZE - pad * 2);
+
+          const { data } = ctx.getImageData(0, 0, ICON_SIZE, ICON_SIZE);
+          map.addImage(name, { width: ICON_SIZE, height: ICON_SIZE, data: new Uint8Array(data) });
+          resolve();
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+        img.src = url;
+      })
+    )
+  ).then(() => {});
+}
 
 export interface StackInfo {
   index: number;
@@ -91,7 +151,10 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-    map.on('load', () => {
+    map.on('load', async () => {
+      // Icons must be registered before layers render, so load them first.
+      await loadCategoryIcons(map);
+
       map.addSource('features', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -180,22 +243,9 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
       // Location circles: regions, countries, major cities
       map.addLayer({ id: 'circles-major', type: 'circle', source: 'features', filter: LOCATION_MAJOR_FILTER, paint: circlePaint });
 
-      // Colored background circles for event icons
-      map.addLayer({
-        id: 'circles-events-bg',
-        type: 'circle',
-        source: 'features',
-        filter: EVENT_FILTER,
-        paint: {
-          'circle-color': ['coalesce', ['get', '_color'], '#9E9E9E'],
-          'circle-radius': ['interpolate', ['linear'], ['coalesce', ['get', '_radius'], 7], 5, 9, 7, 11, 9, 13, 12, 16],
-          'circle-stroke-color': 'rgba(255,255,255,0.6)',
-          'circle-stroke-width': 1,
-          'circle-opacity': ['number', ['get', '_opacity'], 1.0],
-        } as maplibregl.CirclePaintSpecification,
-      });
-
-      // Event icons: white Maki sprite icons over the colored background
+      // Event icons: single symbol layer using pre-rendered canvas images.
+      // Background + icon are part of the same image, so they always come from
+      // the same GeoJSON feature — no mismatch when events stack at one pixel.
       map.addLayer({
         id: 'events-major',
         type: 'symbol',
@@ -203,12 +253,11 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
         filter: EVENT_FILTER,
         layout: {
           'icon-image': ['coalesce', ['get', '_icon'], 'marker'],
-          'icon-size': ['interpolate', ['linear'], ['coalesce', ['get', '_radius'], 7], 5, 0.8, 7, 1.0, 9, 1.2, 12, 1.5],
+          'icon-size': ['interpolate', ['linear'], ['coalesce', ['get', '_radius'], 7], 5, 0.6, 7, 0.75, 9, 0.9, 12, 1.1],
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
         } as maplibregl.SymbolLayoutSpecification,
         paint: {
-          'icon-color': '#ffffff',
           'icon-opacity': ['number', ['get', '_opacity'], 1.0],
         } as maplibregl.SymbolPaintSpecification,
       });
@@ -230,7 +279,7 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
       // Apply initial border visibility from ref (in case toggle was hit before load)
       if (!showBordersRef.current) applyBorderVisibility(map, false);
 
-      for (const layer of ['circles-major', 'circles-minor', 'circles-events-bg', 'events-major', 'circles-polity', 'stars-polity']) {
+      for (const layer of ['circles-major', 'circles-minor', 'events-major', 'circles-polity', 'stars-polity']) {
         map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
         map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
       }
@@ -260,7 +309,7 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
     // Single map-level handler queries all clickable layers at once.
     // Layer-specific handlers would fire multiple times per click for stacked
     // war events (circles-major + icons-war both hit), corrupting the stack index.
-    const CLICK_LAYERS = ['events-major', 'circles-events-bg', 'circles-major', 'circles-minor', 'stars-polity', 'circles-polity'];
+    const CLICK_LAYERS = ['events-major', 'circles-major', 'circles-minor', 'stars-polity', 'circles-polity'];
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
       const features = map.queryRenderedFeatures(e.point, { layers: CLICK_LAYERS });
@@ -318,9 +367,8 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
 
       // Polities use their own independent filter set
       if (isPolity) {
-        // Only show polities with both start and end dates — avoids showing
-        // polities that linger indefinitely due to missing Wikidata dissolution dates
-        if (p.yearStart == null || p.yearEnd == null) return [];
+        // Require a start date; null end date means the polity is still active
+        if (p.yearStart == null) return [];
 
         const catOk = p.categories.some((c) => activePolityCategories.has(c));
         if (!catOk) return [];
@@ -388,7 +436,7 @@ export function MapView({ geojson, currentDateInt, stepSize, activeCategories, a
         const sl = p.sitelinksCount ?? null;
         extraProps._minZoom = sl === null ? 2 : sl >= 25 ? 1 : sl >= 10 ? 2 : sl >= 3 ? 4 : 6;
         extraProps._radius  = sl === null ? 7 : sl >= 25 ? 12 : sl >= 10 ? 9 : sl >= 3 ? 7 : 5;
-        extraProps._icon    = CATEGORY_ICON_NAMES[p.primaryCategory as Category] ?? 'marker';
+        extraProps._icon    = (p.primaryCategory in CATEGORY_SVGS) ? catIconName(p.primaryCategory as Category) : 'marker';
       }
 
       return [{ ...f, properties: { ...f.properties, ...extraProps } }];

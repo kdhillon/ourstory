@@ -130,9 +130,9 @@ export const displayYear = displayDate;
 
 export function useTimeline() {
   const [currentDateInt, setCurrentDateInt] = useState(() => encodeDate(1790, 1, 1));
-  const [stepSize,        setStepSize]      = useState(STEP_YEAR);
+  const [stepSize,        setStepSize]      = useState(STEP_MONTH);
   const [isPlaying,       setIsPlaying]     = useState(false);
-  const [playbackSpeed,   setPlaybackSpeed] = useState(5); // years per second
+  const [playbackSpeed,   setPlaybackSpeed] = useState(1); // steps per second
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const seek = useCallback((dateInt: number) => {
