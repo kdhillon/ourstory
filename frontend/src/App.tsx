@@ -6,6 +6,7 @@ import { TimelineBar } from './components/TimelineBar';
 import { InfoPanel } from './components/InfoPanel';
 import { CategoryFilter } from './components/CategoryFilter';
 import { DataExplorer } from './components/DataExplorer';
+import { AboutPage } from './components/AboutPage';
 import { MajorEventsPanel } from './components/MajorEventsPanel';
 import { useTimeline, encodeDate, decodeDate, STEP_YEAR } from './hooks/useTimeline';
 import { useEventSource } from './hooks/useEventSource';
@@ -200,6 +201,10 @@ export default function App() {
     });
   }, []);
 
+  if (currentPath === '/about') {
+    return <AboutPage onBack={() => navigate('/')} />;
+  }
+
   if (currentPath === '/data') {
     return (
       <DataExplorer
@@ -220,6 +225,7 @@ export default function App() {
         onToggle={handleToggleCategory}
         activePolityCategories={activePolityCategories}
         onTogglePolity={handleTogglePolityCategory}
+        onOpenAbout={() => navigate('/about')}
         onOpenData={() => navigate('/data')}
         settings={{ windowInfo, isLoading: eventsLoading, error: eventsError }}
       />

@@ -9,6 +9,7 @@ interface Props {
   activePolityCategories: Set<Category>;
   onTogglePolity: (cat: Category) => void;
   onOpenData: () => void;
+  onOpenAbout: () => void;
   settings: SettingsPanelProps; // windowInfo, isLoading, error
 }
 
@@ -87,7 +88,7 @@ function ChipGroup({ cats, activeCategories, onToggle }: {
   );
 }
 
-export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, settings }: Props) {
+export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, onOpenAbout, settings }: Props) {
   return (
     <div style={styles.bar}>
       {/* Row 1: wordmark + events */}
@@ -97,6 +98,7 @@ export function CategoryFilter({ activeCategories, onToggle, activePolityCategor
         <GroupLabel label="Events" cats={EVENT_CATEGORIES} activeSet={activeCategories} onToggle={onToggle} />
         <ChipGroup cats={EVENT_CATEGORIES} activeCategories={activeCategories} onToggle={onToggle} />
         <div style={{ flex: 1 }} />
+        <button onClick={onOpenAbout} style={styles.dataBtn}>About</button>
         <button onClick={onOpenData} style={styles.dataBtn}>Data ↗</button>
         <SettingsPanel {...settings} />
       </div>
