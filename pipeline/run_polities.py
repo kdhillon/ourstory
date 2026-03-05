@@ -68,13 +68,23 @@ POLITY_SPARQL_CATEGORIES: list[tuple[str, str]] = [
     ("caliphate",           "Q131401"),    # caliphate
     ("pontificate",         "Q12799209"),  # pontificate / papacy
     ("country",             "Q6256"),      # country (catches remaining sovereign states)
+    # Colonial / dependent territories
+    ("colony",              "Q133156"),    # colony (Dutch Ceylon, British India, etc.)
+    ("viceroyalty",         "Q12356456"),  # viceroyalty (New Granada, New Spain, Peru, etc.)
+    # Other European political forms common in 1600–1900
+    ("duchy",               "Q159627"),    # duchy (German states, Italian states)
+    ("grand duchy",         "Q47848"),     # grand duchy (Tuscany, Lithuania, etc.)
+    ("margraviate",         "Q165994"),    # margraviate (Brandenburg, etc.)
+    ("county palatine",     "Q166346"),    # county palatine
     # Sub-state entities treated as principalities
     ("vilayet",             "Q1462047"),   # Ottoman vilayet
     ("eyalet",              "Q44565"),     # Ottoman eyalet (earlier provincial type)
+    ("khanate",             "Q200976"),    # khanate (Crimea, Central Asia, etc.)
+    ("regency",             "Q2560551"),   # regency (Algiers, Tunis, Tripoli)
 ]
 
 # Reasonable limit per category — polities are far fewer than events
-DEFAULT_LIMIT = 500
+DEFAULT_LIMIT = 2000
 
 
 # ---------------------------------------------------------------------------

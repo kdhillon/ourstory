@@ -305,8 +305,8 @@ def upsert_polities(conn, polity_records: list[dict], pipeline_run: str = "") ->
             %(preceded_by_qid)s, %(succeeded_by_qid)s, %(location_wikidata_qid)s,
             %(sovereign_qids)s, %(p31_qids)s, %(data_version)s, %(pipeline_run)s
         )
-        ON CONFLICT (slug) DO UPDATE SET
-            wikidata_qid         = COALESCE(EXCLUDED.wikidata_qid, polities.wikidata_qid),
+        ON CONFLICT (wikidata_qid) DO UPDATE SET
+            slug                 = EXCLUDED.slug,
             name                 = EXCLUDED.name,
             short_name           = COALESCE(EXCLUDED.short_name, polities.short_name),
             polity_type          = EXCLUDED.polity_type,
@@ -329,6 +329,18 @@ def upsert_polities(conn, polity_records: list[dict], pipeline_run: str = "") ->
 
     loaded = 0
     skipped = 0
+
+    # Deduplicate by wikidata_qid — keep last occurrence (later SPARQL categories win)
+    seen_qids: set[str] = set()
+    deduped: list[dict] = []
+    for rec in reversed(polity_records):
+        qid = rec.get("wikidata_qid")
+        if qid and qid in seen_qids:
+            continue
+        if qid:
+            seen_qids.add(qid)
+        deduped.append(rec)
+    polity_records = list(reversed(deduped))
 
     with conn.cursor() as cur:
         for rec in polity_records:
