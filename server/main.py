@@ -46,6 +46,7 @@ app.add_middleware(
         "https://openhistory.app",
         "https://www.openhistory.app",
     ],
+    allow_credentials=True,
     allow_methods=["GET", "PATCH", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Write-Secret"],
 )
