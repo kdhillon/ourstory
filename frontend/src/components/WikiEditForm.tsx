@@ -5,7 +5,7 @@ import {
   submitDateEdit, submitLocationEdit, searchEntities,
   type EntityResult,
 } from '../lib/wikidataApi';
-import { patchFeature } from '../lib/api';
+import { patchFeature, patchPolity } from '../lib/api';
 
 interface Props {
   feature: FeatureProperties;
@@ -124,10 +124,15 @@ export function WikiEditForm({ feature, field, wikiAuth, onAuth, onSuccess, onCl
         const ed = eyFinal != null && endDay ? parseInt(endDay, 10) : null;
         await submitDateEdit(qid, startYearFinal, sm, sd, eyFinal, em, ed, csrf);
         // Persist to our DB (fire-and-forget — don't block the success screen)
-        patchFeature(feature.id, {
-          year_start: startYearFinal, month_start: sm, day_start: sd,
-          year_end: eyFinal, month_end: em, day_end: ed,
-        }).catch((e) => console.warn('[API] date patch failed:', e));
+        if (feature.featureType === 'polity') {
+          patchPolity(feature.id, { year_start: startYearFinal, year_end: eyFinal })
+            .catch((e) => console.warn('[API] polity date patch failed:', e));
+        } else {
+          patchFeature(feature.id, {
+            year_start: startYearFinal, month_start: sm, day_start: sd,
+            year_end: eyFinal, month_end: em, day_end: ed,
+          }).catch((e) => console.warn('[API] date patch failed:', e));
+        }
         onSuccess({ yearStart: startYearFinal, monthStart: sm, dayStart: sd, yearEnd: eyFinal, monthEnd: em, dayEnd: ed });
       } else {
         if (!selectedLocation) throw new Error('Please select a location from the search results.');

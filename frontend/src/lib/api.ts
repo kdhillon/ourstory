@@ -40,6 +40,31 @@ export async function patchFeature(eventId: string, patch: FeaturePatch): Promis
   return res.json();
 }
 
+export interface PolityPatch {
+  year_start?: number | null;
+  year_end?: number | null;
+  name?: string | null;
+  capital_name?: string | null;
+  capital_wikidata_qid?: string | null;
+}
+
+/**
+ * Persist a user correction to a polity record in Postgres.
+ * Returns the updated GeoJSON feature. Throws on network error or non-2xx response.
+ */
+export async function patchPolity(polityId: string, patch: PolityPatch): Promise<GeoJSON.Feature> {
+  const res = await fetch(`${API_BASE}/polities/${polityId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API PATCH polity failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
 /**
  * Fetch all manually-edited events since the last GeoJSON generation.
  * Returns a FeatureCollection to merge over the static seed.geojson.
@@ -85,6 +110,26 @@ export async function deleteTerritoryMapping(hbName: string, snapshotYear: numbe
   const params = new URLSearchParams({ hb_name: hbName, snapshot_year: String(snapshotYear) });
   const res = await fetch(`${API_BASE}/territory-mappings?${params}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`API DELETE territory-mappings failed (${res.status})`);
+}
+
+export async function fetchManualPolities(): Promise<GeoJSON.Feature[]> {
+  const res = await fetch(`${API_BASE}/polities/manual`);
+  if (!res.ok) return [];
+  const fc = await res.json() as { features: GeoJSON.Feature[] };
+  return fc.features ?? [];
+}
+
+export async function importPolityFromWikidata(qid: string): Promise<GeoJSON.Feature> {
+  const res = await fetch(`${API_BASE}/polities/import-from-wikidata`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qid }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Import failed (${res.status}): ${text}`);
+  }
+  return res.json();
 }
 
 export async function saveTerritoryMapping(
