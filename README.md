@@ -62,42 +62,28 @@ This project is under active development. The core map, data pipeline, and deplo
 - Node.js 20+
 - Python 3.10+
 
-### 1. Start the database
+### 1. Set up the database connection
 
-The DB runs in a Docker container on port **5433** (5432 is reserved for other local projects).
+This project uses a hosted PostgreSQL database on [Railway](https://railway.app). There is no local database.
 
 ```bash
-# First time — create the container
-docker run -d \
-  --name openhistory-postgres \
-  -e POSTGRES_DB=ourstory \
-  -e POSTGRES_USER=ourstory \
-  -e POSTGRES_PASSWORD=ourstory \
-  -p 5433:5432 \
-  -v openhistory_pgdata:/var/lib/postgresql/data \
-  postgres:16
-
-# Subsequent runs
-docker start openhistory-postgres
+cp .env.example .env
+# Fill in DATABASE_URL with your Railway Postgres URL
+# Add ANTHROPIC_API_KEY if you want to use LLM category assignment
+source .env
 ```
 
 ### 2. Apply schema migrations
 
 ```bash
+source .env
 for f in db/migrations/*.sql; do
   echo "Applying $f..."
-  PGPASSWORD=ourstory psql -h localhost -p 5433 -U ourstory -d ourstory -f "$f"
+  psql "$DATABASE_URL" -f "$f"
 done
 ```
 
 Migrations are in `db/migrations/` and numbered sequentially. Apply them in order; they are idempotent.
-
-### 3. Copy the environment file
-
-```bash
-cp .env.example .env
-# Add your ANTHROPIC_API_KEY if you want to use LLM category assignment
-```
 
 ### 4. Run the pipeline
 

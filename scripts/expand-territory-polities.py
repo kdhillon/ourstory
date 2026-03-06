@@ -29,10 +29,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://ourstory:ourstory@localhost:5433/ourstory",
-)
+DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
 
 
 def expand_snapshot(snapshot_year: int, next_snapshot_year: Optional[int],

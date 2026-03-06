@@ -129,7 +129,7 @@ export function displayDate(dateInt: number, stepSize = STEP_YEAR): string {
 export const displayYear = displayDate;
 
 export function useTimeline() {
-  const [currentDateInt, setCurrentDateInt] = useState(() => encodeDate(1800, 1, 1));
+  const [currentDateInt, setCurrentDateInt] = useState(() => encodeDate(1700, 1, 1));
   const [stepSize,        setStepSize]      = useState(STEP_YEAR);
   const [isPlaying,       setIsPlaying]     = useState(false);
   const [playbackSpeed,   setPlaybackSpeed] = useState(1); // steps per second

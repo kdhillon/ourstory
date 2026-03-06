@@ -46,10 +46,7 @@ import requests
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://ourstory:ourstory@localhost:5433/ourstory",
-)
+DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
 TIME_TOLERANCE   = 25      # years either side of polity lifetime
 MIN_JACCARD_HIGH = 0.60
 MIN_JACCARD_MED  = 0.40

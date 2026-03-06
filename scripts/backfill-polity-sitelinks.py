@@ -20,10 +20,7 @@ import psycopg2
 import psycopg2.extras
 import requests
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://ourstory:ourstory@localhost:5433/ourstory",
-)
+DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
 
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 BATCH_SIZE = 50

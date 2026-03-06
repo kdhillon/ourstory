@@ -20,10 +20,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://ourstory:ourstory@localhost:5433/ourstory",
-)
+DATABASE_URL = os.environ["DATABASE_URL"]  # set via Railway env
 
 app = FastAPI(title="OurStory API", version="0.1.0")
 

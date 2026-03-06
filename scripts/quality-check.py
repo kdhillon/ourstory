@@ -24,7 +24,7 @@ Usage:
 
 Environment:
     ANTHROPIC_API_KEY  — required
-    DATABASE_URL       — defaults to postgresql://ourstory:ourstory@localhost:5433/ourstory
+    DATABASE_URL       — Railway connection string (required)
 """
 
 import argparse
@@ -37,10 +37,7 @@ import anthropic
 import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://ourstory:ourstory@localhost:5433/ourstory",
-)
+DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
 
 # Model to use — haiku is fast and cheap; swap for sonnet if accuracy matters more
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"

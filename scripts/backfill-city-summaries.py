@@ -20,10 +20,7 @@ import psycopg2
 import psycopg2.extras
 import requests
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://ourstory:ourstory@localhost:5433/ourstory",
-)
+DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
 
 WIKIPEDIA_API = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
 USER_AGENT = "OurStory-pipeline/0.2 (backfill-city-summaries)"
