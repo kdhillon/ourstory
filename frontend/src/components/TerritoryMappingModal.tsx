@@ -142,7 +142,15 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
                       display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
                     }}
                   >
-                    <span style={{ fontSize: 13 }}>{p.title}</span>
+                    <a
+                      href={p.wikipediaUrl || `https://en.wikipedia.org/wiki/${p.title.replace(/ /g, '_')}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ fontSize: 13, color: '#e8eaf0', textDecoration: 'none' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                      onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                    >{p.title}</a>
                     <span style={{ fontSize: 11, color: '#778', marginLeft: 10, whiteSpace: 'nowrap' }}>
                       {p.yearStart ?? '?'}–{p.yearEnd ?? '∞'}
                       {p.polityType ? ` · ${p.polityType}` : ''}
@@ -189,7 +197,7 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
                               href={`https://en.wikipedia.org/wiki/${r.label.replace(/ /g, '_')}`}
                               target="_blank"
                               rel="noreferrer"
-                              style={{ fontSize: 13, color: '#aac4ff', textDecoration: 'none' }}
+                              style={{ fontSize: 13, color: '#e8eaf0', textDecoration: 'none' }}
                               onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
                               onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
                             >
