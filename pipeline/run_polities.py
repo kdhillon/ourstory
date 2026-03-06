@@ -574,19 +574,33 @@ def main():
                         help=f"Max QIDs per SPARQL category (default: {DEFAULT_LIMIT})")
     parser.add_argument("--dry-run", action="store_true",
                         help="Fetch and classify but do not write to Postgres")
+    parser.add_argument("--categories", type=str, default=None,
+                        help="Comma-separated category labels to run, e.g. "
+                             "'ethnic group,tribe,indigenous people'. Defaults to all.")
     args = parser.parse_args()
+
+    # Filter categories if requested
+    categories = POLITY_SPARQL_CATEGORIES
+    if args.categories:
+        wanted = {c.strip().lower() for c in args.categories.split(",")}
+        categories = [(label, qid) for label, qid in POLITY_SPARQL_CATEGORIES
+                      if label.lower() in wanted]
+        if not categories:
+            print(f"No categories matched. Available: {[l for l,_ in POLITY_SPARQL_CATEGORIES]}")
+            return
+        print(f"Running {len(categories)} selected categories: {[l for l,_ in categories]}")
 
     # ------------------------------------------------------------------
     # Step 1: SPARQL → QIDs per polity superclass
     # ------------------------------------------------------------------
     print(f"\n[Step 1] Fetching polity QIDs via SPARQL "
-          f"({len(POLITY_SPARQL_CATEGORIES)} categories, "
+          f"({len(categories)} categories, "
           f"window: {args.min_year or 'any'}–{args.max_year})...")
 
     all_qids: list[str] = []
     seen: set[str] = set()
 
-    for label, class_qid in POLITY_SPARQL_CATEGORIES:
+    for label, class_qid in categories:
         print(f"  Querying {label} (wd:{class_qid})... ", end="", flush=True)
         try:
             qids = fetch_polity_sparql_qids(
