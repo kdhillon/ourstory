@@ -216,13 +216,6 @@ export default function App() {
     checkLogin().then((username) => setWikiAuth(username));
   }, []);
 
-  useEffect(() => {
-    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
-    fetch(`${apiBase}/territory-snapshots`)
-      .then((r) => r.json())
-      .then((d: { years: number[] }) => setSnapshotYears(d.years))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     fetchHiddenNations()
