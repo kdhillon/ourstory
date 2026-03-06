@@ -28,6 +28,7 @@ Usage:
   python3 scripts/match_territories.py --min-confidence 0.75
   python3 scripts/match_territories.py --output results.json
   python3 scripts/match_territories.py --no-sitelinks   # skip Wikidata fetch
+  python3 scripts/match_territories.py --overwrite-auto # re-match existing auto entries
 """
 
 import argparse
@@ -49,8 +50,6 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://ourstory:ourstory@localhost:5433/ourstory",
 )
-GEOJSON_PATH = Path(__file__).parent.parent / "frontend/src/data/territories.geojson"
-
 TIME_TOLERANCE   = 25      # years either side of polity lifetime
 MIN_JACCARD_HIGH = 0.60
 MIN_JACCARD_MED  = 0.40
@@ -70,7 +69,94 @@ _TITLE_PREFIXES = [
     "grand principality of", "principality of", "palatinate of",
 ]
 _STOPWORDS = {
+    # Articles / prepositions
     "of", "the", "and", "de", "du", "der", "von", "le", "la", "les", "al",
+    "el", "en", "et", "in", "at", "to", "a", "an",
+    # Political entity types — excluded from token matching so that
+    # "X Confederation" never false-matches "Y Confederation" via Jaccard.
+    # These words are still used in _TITLE_PREFIXES for core_name stripping.
+    "kingdom", "empire", "dynasty", "imperial", "imperial",
+    "republic", "republican",
+    "sultanate", "sultan",
+    "duchy", "dukedom", "grand",
+    "principality", "princedom", "principate",
+    "confederation", "confederacy", "confederate",
+    "union", "united",
+    "territory", "territories",
+    "province", "provincial",
+    "state", "states",
+    "khanate", "khan", "khaganate", "khagan",
+    "caliphate", "caliph",
+    "emirate", "emir", "amirate", "amiri",
+    "electorate", "elector",
+    "margraviate", "margrave", "marquisate", "marquessate",
+    "palatinate", "palatine",
+    "landgraviate", "landgrave",
+    "burggraviate", "burgrave",
+    "dominion",
+    "colony", "colonial", "colonies",
+    "protectorate",
+    "viceroyalty", "viceroy", "viceregal",
+    "captaincy",
+    "regency", "regent",
+    "vilayet", "eyalet", "sanjak", "pashalik", "pasha",
+    "despotate", "despot", "despotism",
+    "commonwealth",
+    "federation", "federated", "federal",
+    "league",
+    "alliance",
+    "mandate",
+    "dependency",
+    "realm",
+    "reich",
+    "tsardom", "tsarist", "tsar", "czar", "czardom",
+    "shogunate", "shogun", "bakufu",
+    "beylik", "bey",
+    "commune", "canton",
+    "prefecture",
+    "governorate", "governorship",
+    "barony", "baron",
+    "viscountcy", "viscountate", "viscount",
+    "earldom", "earl",
+    "archduchy", "archduke",
+    "county", "countship", "count",
+    "lordship", "lord",
+    "bishopric", "bishop",
+    "archbishopric", "archbishop",
+    "papacy", "papal", "pontificate",
+    "abbacy", "abbey",
+    "priorate", "priory",
+    "commandery",
+    "imamate", "imam",
+    "sheikhdom", "sheikh", "sheikdom",
+    "nawabate", "nawab",
+    "nizamate", "nizam",
+    "raj", "rani", "rajah", "raja",
+    "presidency",
+    "residency",
+    "ulus",
+    "horde",
+    "daimyo", "han",
+    "chiefdom", "chieftaincy", "paramount",
+    "band",
+    "people", "peoples",
+    "nation", "nations",
+    "tribe", "tribal",
+    "ethnic", "group",
+    "native", "indigenous",
+    "first",
+    "society",
+    "holy", "free", "royal", "sovereign", "independent",
+    "crown", "crown",
+    "old", "new", "northern", "southern", "eastern", "western",
+    "upper", "lower", "greater", "lesser", "little", "great",
+    "inner", "outer", "central", "middle",
+    "mandate", "trust",
+    "voivodate", "voivodeship", "voivode",
+    "hetmanate", "hetman",
+    "kraal",
+    "ulus", "ordu",
+    "obshchina",
 }
 
 # ── Text helpers ───────────────────────────────────────────────────────────────
@@ -137,11 +223,24 @@ def name_variants(hb_name: str) -> list[tuple[str, str, float]]:
 def time_overlap(t_start: int, t_end: int | None,
                  p_start: int | None, p_end: int | None,
                  tol: int = TIME_TOLERANCE) -> bool:
+    """Territory interval [t_start, t_end] must overlap polity lifetime [p_start, p_end].
+    Polities with no year_start are always accepted (undated).
+    The snapshot year (t_start) itself must fall within the polity lifetime when
+    the polity has a known end year — this prevents matching a polity that ended
+    long before the snapshot even with generous tolerance.
+    """
     if p_start is None:
         return True
     te = t_end if t_end is not None else 9999
     pe = p_end if p_end is not None else 9999
-    return (t_start - tol) <= pe and (te + tol) >= p_start
+    # Basic interval overlap with tolerance
+    if not ((t_start - tol) <= pe and (te + tol) >= p_start):
+        return False
+    # Extra: if polity has a known end year, the snapshot start must not be
+    # more than tol years past it (prevents matching long-dead polities).
+    if p_end is not None and t_start > p_end + tol:
+        return False
+    return True
 
 
 # ── Wikidata sitelinks ─────────────────────────────────────────────────────────
@@ -301,7 +400,15 @@ def match_territory(
                 for p in core_index.get(p_core, []):
                     add(p, 0.68, "compound_split_core")
 
-    results.sort(key=lambda x: x["confidence"], reverse=True)
+    def _rank(m: dict) -> tuple:
+        ys, ye = m.get("year_start"), m.get("year_end")
+        # Prefer polities with both start AND end year (has_both=0 sorts first)
+        has_both = 0 if (ys is not None and ye is not None) else 1
+        # Among those, prefer tightest lifespan that still covers the interval
+        lifespan = (ye - ys) if has_both == 0 else 999_999
+        return (-m["confidence"], has_both, lifespan)
+
+    results.sort(key=_rank)
     return results
 
 
@@ -309,7 +416,10 @@ def match_territory(
 
 def main():
     parser = argparse.ArgumentParser(description="Match territories to polities")
-    parser.add_argument("--apply",          action="store_true")
+    parser.add_argument("--apply",          action="store_true",
+                        help="Write matches to territory_name_mappings and snapshot_polygons")
+    parser.add_argument("--overwrite-auto", action="store_true",
+                        help="Re-match entries that already have auto confidence (skip manual)")
     parser.add_argument("--limit",          type=int, default=0)
     parser.add_argument("--min-confidence", type=float, default=DEFAULT_MIN_CONF)
     parser.add_argument("--output",         type=str, default="")
@@ -319,30 +429,63 @@ def main():
     conn = psycopg2.connect(DATABASE_URL)
     cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
+    # Load all polities
     cur.execute("SELECT id, name, short_name, year_start, year_end, wikidata_qid, slug FROM polities ORDER BY name")
     all_polities = [dict(r) for r in cur.fetchall()]
     print(f"Loaded {len(all_polities)} polities from DB")
 
-    cur.execute("SELECT hb_name, snapshot_year FROM territory_name_mappings")
-    already_mapped = {(r["hb_name"], r["snapshot_year"]) for r in cur.fetchall()}
-    print(f"Already mapped: {len(already_mapped)}")
+    # Load existing mappings — skip manual ones always, skip auto ones unless --overwrite-auto
+    cur.execute("SELECT hb_name, snapshot_year, confidence FROM territory_name_mappings")
+    manual_mapped:   set[tuple] = set()
+    auto_mapped:     set[tuple] = set()
+    for r in cur.fetchall():
+        key = (r["hb_name"], r["snapshot_year"])
+        if r["confidence"] == "manual":
+            manual_mapped.add(key)
+        else:
+            auto_mapped.add(key)
+    print(f"Already mapped: {len(manual_mapped)} manual, {len(auto_mapped)} auto")
 
-    with open(GEOJSON_PATH) as f:
-        geojson = json.load(f)
+    # Load all distinct (hb_name, snapshot_year) from DB with their intervals
+    cur.execute("""
+        WITH snapshot_intervals AS (
+            SELECT
+                snapshot_year,
+                LEAD(snapshot_year) OVER (ORDER BY snapshot_year) AS next_snapshot_year
+            FROM territory_snapshots
+        )
+        SELECT DISTINCT
+            sp.hb_name,
+            sp.snapshot_year,
+            si.snapshot_year    AS interval_start,
+            si.next_snapshot_year AS interval_end
+        FROM snapshot_polygons sp
+        JOIN snapshot_intervals si ON si.snapshot_year = sp.snapshot_year
+        WHERE NOT sp.explicitly_unlinked
+        ORDER BY sp.hb_name, sp.snapshot_year
+    """)
+    all_territory_rows = [dict(r) for r in cur.fetchall()]
 
-    seen: set[tuple] = set()
+    # Build per-hb_name snapshot index (all snapshot years, for expansion at apply time)
+    hb_all_snapshots: dict[str, set[int]] = {}
+    for row in all_territory_rows:
+        hb_all_snapshots.setdefault(row["hb_name"], set()).add(row["snapshot_year"])
+
+    # Deduplicate: one candidate per hb_name (use earliest snapshot for interval)
+    seen_names: set[str] = set()
     candidates = []
-    for feat in geojson["features"]:
-        p = feat["properties"]
-        if p.get("polityId"):
-            continue
-        key = (p["hbName"], p["snapshotYear"])
-        if key in seen or key in already_mapped:
-            continue
-        seen.add(key)
-        candidates.append(p)
+    for row in all_territory_rows:
+        key = (row["hb_name"], row["snapshot_year"])
+        if key in manual_mapped:
+            continue  # never overwrite manual
+        if key in auto_mapped and not args.overwrite_auto:
+            continue  # skip auto unless asked
+        if row["hb_name"] in seen_names:
+            continue  # one candidate per name
+        seen_names.add(row["hb_name"])
+        candidates.append(row)
 
-    print(f"Unlinked territory entries (deduped, unmapped): {len(candidates)}")
+    print(f"Candidates to match: {len(candidates)}")
 
     if args.limit:
         candidates = candidates[: args.limit]
@@ -352,10 +495,10 @@ def main():
 
     all_results = []
     for terr in candidates:
-        hb_name       = terr["hbName"]
-        snapshot_year = terr["snapshotYear"]
-        i_start       = terr.get("intervalStart") or snapshot_year
-        i_end         = terr.get("intervalEnd")
+        hb_name       = terr["hb_name"]
+        snapshot_year = terr["snapshot_year"]
+        i_start       = terr["interval_start"]
+        i_end         = terr["interval_end"]
 
         matches = match_territory(hb_name, i_start, i_end, norm_index, core_index, all_polities)
 
@@ -400,9 +543,9 @@ def main():
 
     all_results.sort(key=sort_key)
 
-    matched      = [r for r in all_results if r["status"] == "matched"]
-    low_conf     = [r for r in all_results if r["status"] == "low_confidence"]
-    no_match     = [r for r in all_results if r["status"] == "no_match"]
+    matched  = [r for r in all_results if r["status"] == "matched"]
+    low_conf = [r for r in all_results if r["status"] == "low_confidence"]
+    no_match = [r for r in all_results if r["status"] == "no_match"]
 
     print(f"\n{'═'*78}")
     print(f"  MATCHED ({len(matched)})  |  LOW CONF ({len(low_conf)})  |  NO MATCH ({len(no_match)})  "
@@ -431,14 +574,6 @@ def main():
             print(f"  ✗  {r['hb_name']}")
 
     if args.apply:
-        # Build a complete index of all snapshot_years for every hb_name in the geojson
-        # so that when we write a mapping we cover ALL snapshots (1800, 1850, 1900 …)
-        # of the same territory name, not just the single candidate year.
-        hb_all_snapshots: dict[str, set[int]] = {}
-        for feat in geojson["features"]:
-            fp = feat["properties"]
-            hb_all_snapshots.setdefault(fp["hbName"], set()).add(fp["snapshotYear"])
-
         to_insert = matched
         # Expand: each matched hb_name → all its snapshot_years
         rows_to_write: list[tuple] = []
@@ -446,6 +581,8 @@ def main():
             b = r["best_match"]
             all_years = sorted(hb_all_snapshots.get(r["hb_name"], {r["snapshot_year"]}))
             for year in all_years:
+                if (r["hb_name"], year) in manual_mapped:
+                    continue  # never overwrite manual
                 rows_to_write.append((
                     r["hb_name"], year,
                     b["polity_id"], b.get("wikidata_qid"),
@@ -453,23 +590,39 @@ def main():
                     f"auto:{b['strategy']}",
                 ))
 
-        print(f"\nWriting {len(rows_to_write)} rows ({len(to_insert)} hb_names × all snapshot years) "
-              f"to territory_name_mappings…")
+        print(f"\nWriting {len(rows_to_write)} rows ({len(to_insert)} hb_names × all snapshot years)…")
         cur2 = conn.cursor()
-        inserted = 0
+        tnm_inserted = 0
+        sp_updated   = 0
         for row in rows_to_write:
+            hb_name, year, polity_id, wikidata_qid, confidence, notes = row
             try:
                 cur2.execute("""
                     INSERT INTO territory_name_mappings
                         (hb_name, snapshot_year, polity_id, wikidata_qid, confidence, notes)
                     VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (hb_name, snapshot_year) DO NOTHING
+                    ON CONFLICT (hb_name, snapshot_year) DO UPDATE SET
+                        polity_id    = EXCLUDED.polity_id,
+                        wikidata_qid = EXCLUDED.wikidata_qid,
+                        confidence   = EXCLUDED.confidence,
+                        notes        = EXCLUDED.notes,
+                        updated_at   = NOW()
+                    WHERE territory_name_mappings.confidence != 'manual'
                 """, row)
-                inserted += cur2.rowcount
+                tnm_inserted += cur2.rowcount
+                # Also update snapshot_polygons so COALESCE(tnm, sp) is consistent
+                cur2.execute("""
+                    UPDATE snapshot_polygons
+                    SET polity_id = %s
+                    WHERE hb_name = %s AND snapshot_year = %s
+                      AND NOT explicitly_unlinked
+                """, (polity_id, hb_name, year))
+                sp_updated += cur2.rowcount
             except Exception as e:
-                print(f"  [error] {row[0]} / {row[1]}: {e}", file=sys.stderr)
+                print(f"  [error] {hb_name} / {year}: {e}", file=sys.stderr)
         conn.commit()
-        print(f"Inserted {inserted} new mappings.")
+        print(f"territory_name_mappings: {tnm_inserted} upserted")
+        print(f"snapshot_polygons:       {sp_updated} updated")
 
     if args.output:
         with open(args.output, "w") as f:

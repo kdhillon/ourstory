@@ -256,6 +256,7 @@ _ALLOWED_FIELDS = {
     "year_start", "month_start", "day_start",
     "year_end", "month_end", "day_end",
     "location_name", "location_wikidata_qid", "location_level",
+    "manually_hidden",
 }
 
 
@@ -316,6 +317,7 @@ async def patch_feature(event_id: str, request: Request):
 _POLITY_ALLOWED_FIELDS = {
     "name", "year_start", "year_end", "capital_name", "capital_wikidata_qid",
     "polity_type", "short_name", "lat", "lng", "sovereign_qids",
+    "manually_hidden",
 }
 
 
@@ -742,6 +744,21 @@ def get_polity_overrides():
         """)
         features = [_build_polity_feature(dict(r)) for r in cur.fetchall()]
         return {"type": "FeatureCollection", "features": features, "count": len(features)}
+    finally:
+        conn.close()
+
+
+@app.get("/api/hidden-features")
+def get_hidden_features():
+    """Return IDs of all manually-hidden polities and events."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM polities WHERE manually_hidden = TRUE")
+        polity_ids = [str(r[0]) for r in cur.fetchall()]
+        cur.execute("SELECT id FROM events WHERE manually_hidden = TRUE")
+        event_ids = [str(r[0]) for r in cur.fetchall()]
+        return {"ids": polity_ids + event_ids}
     finally:
         conn.close()
 

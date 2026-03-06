@@ -131,6 +131,34 @@ export async function deleteTerritoryMapping(hbName: string, snapshotYear: numbe
   if (!res.ok) throw new Error(`API DELETE territory-mappings failed (${res.status})`);
 }
 
+/**
+ * Fetch IDs of all manually-hidden polities and events.
+ */
+export async function fetchHiddenFeatures(): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/hidden-features`);
+  if (!res.ok) return [];
+  const data = await res.json() as { ids: string[] };
+  return data.ids ?? [];
+}
+
+/**
+ * Toggle the manually_hidden flag for a polity or event.
+ */
+export async function setFeatureHidden(id: string, type: 'polity' | 'event', hidden: boolean): Promise<void> {
+  const url = type === 'polity'
+    ? `${API_BASE}/polities/${id}`
+    : `${API_BASE}/features/${id}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ manually_hidden: hidden }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API PATCH hidden failed (${res.status}): ${text}`);
+  }
+}
+
 export async function fetchManualPolities(): Promise<GeoJSON.Feature[]> {
   const res = await fetch(`${API_BASE}/polities/manual`);
   if (!res.ok) return [];

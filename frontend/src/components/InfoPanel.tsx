@@ -30,6 +30,7 @@ interface Props {
   onFeatureUpdated: (updates: Partial<FeatureProperties>) => void;
   hiddenNations?: Map<string, number>;
   onToggleHiddenNation?: (polityId: string) => void;
+  onHideFeature?: (id: string, type: 'polity' | 'event') => void;
 }
 
 const WIKI_API = 'https://en.wikipedia.org/w/api.php';
@@ -60,7 +61,7 @@ function PencilIcon() {
   );
 }
 
-export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeature, wikiAuth, onAuth, onFeatureUpdated, hiddenNations, onToggleHiddenNation }: Props) {
+export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeature, wikiAuth, onAuth, onFeatureUpdated, hiddenNations, onToggleHiddenNation, onHideFeature }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [expandedWidth, setExpandedWidth] = useState(468);
   const [editField, setEditField] = useState<'date' | 'location' | 'capital' | 'sovereign' | null>(null);
@@ -366,30 +367,6 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
       <div style={styles.titleRow}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
           <h2 style={styles.title}>{feature.title}</h2>
-          {isPolity && onToggleHiddenNation && (
-            <button
-              onClick={() => onToggleHiddenNation(feature.id)}
-              title={hiddenNations?.has(feature.id)
-                ? 'Show territory in all periods'
-                : 'Hide territory until the modern era (prevents overlap with historical polities)'}
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                fontFamily: 'inherit',
-                padding: '3px 8px',
-                border: '1px solid',
-                borderRadius: 5,
-                cursor: 'pointer',
-                flexShrink: 0,
-                background: hiddenNations?.has(feature.id) ? '#fff3cd' : 'transparent',
-                borderColor: hiddenNations?.has(feature.id) ? '#ffc107' : 'rgba(0,0,0,0.2)',
-                color: hiddenNations?.has(feature.id) ? '#856404' : 'rgba(0,0,0,0.5)',
-                transition: 'all 0.15s',
-              }}
-            >
-              {hiddenNations?.has(feature.id) ? '⚠ Modern Nation (hidden pre-1900)' : 'Hide Modern Nation'}
-            </button>
-          )}
         </div>
         {dateStr && (
           <div style={styles.dateBlock}>
@@ -814,6 +791,15 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
                 ↗
               </a>
             )}
+            {onHideFeature && (feature.featureType === 'polity' || feature.featureType === 'event') && (
+              <button
+                onClick={() => onHideFeature(feature.id, feature.featureType as 'polity' | 'event')}
+                title="Hide from map — this entry won't appear on the map. You can unhide it in the Data Viewer."
+                style={styles.extBtn as React.CSSProperties}
+              >
+                Hide
+              </button>
+            )}
             {stack.total > 1 && <StackDots stack={stack} />}
           </>
         ) : (
@@ -822,6 +808,15 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
               <a href={feature.wikipediaUrl} target="_blank" rel="noopener noreferrer" style={styles.wikiBtn}>
                 Open in Wikipedia ↗
               </a>
+            )}
+            {onHideFeature && (feature.featureType === 'polity' || feature.featureType === 'event') && (
+              <button
+                onClick={() => onHideFeature(feature.id, feature.featureType as 'polity' | 'event')}
+                title="Hide from map — this entry won't appear on the map. You can unhide it in the Data Viewer."
+                style={styles.extBtn as React.CSSProperties}
+              >
+                Hide
+              </button>
             )}
             {stack.total > 1 && <StackDots stack={stack} />}
           </>
@@ -1153,15 +1148,19 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 28,
+    minWidth: 28,
     height: 28,
+    padding: '0 8px',
     background: 'rgba(0,0,0,0.04)',
     border: '1px solid rgba(0,0,0,0.1)',
     borderRadius: 6,
-    fontSize: 13,
+    fontSize: 12,
+    fontFamily: 'inherit',
     color: '#54595d',
     textDecoration: 'none',
     flexShrink: 0,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
   },
   wikiBtn: {
     fontSize: 12,

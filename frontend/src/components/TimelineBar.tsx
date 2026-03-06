@@ -1,9 +1,11 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { YEAR_MIN, YEAR_MAX } from '../types';
 import {
   displayDate, encodeDate, normalizeDateInt,
   DATE_MIN, DATE_MAX, STEP_MONTH, STEP_YEAR,
 } from '../hooks/useTimeline';
+
+export const TIMELINE_BAR_HEIGHT = 64;
 
 interface Props {
   currentDateInt: number;
@@ -47,6 +49,35 @@ function formatStepLabel(s: number): string {
 const SPEED_OPTIONS = [1, 5, 10, 25, 50];
 const JUMP_STEPS = 5; // how many steps the ±5 buttons jump
 
+// ── Year bookmark strip ───────────────────────────────────────────────────────
+const YEAR_RANGE = YEAR_MAX - YEAR_MIN;
+// Candidate intervals in ascending order; pick the finest one that fits
+const MARKER_INTERVALS = [100, 200, 250, 500, 1000];
+const THUMB_RADIUS = 8; // half of the range-input thumb width (~16 px)
+const MIN_PX_GAP = 26;  // min pixels between adjacent marker centres
+
+function getYearMarkers(sliderPx: number): number[] {
+  if (sliderPx < 1) return [];
+  const trackPx = sliderPx - THUMB_RADIUS * 2;
+  let interval = MARKER_INTERVALS[MARKER_INTERVALS.length - 1];
+  for (const iv of MARKER_INTERVALS) {
+    if ((YEAR_RANGE / iv) * MIN_PX_GAP <= trackPx) { interval = iv; break; }
+  }
+  const first = Math.ceil(YEAR_MIN / interval) * interval;
+  const result: number[] = [];
+  for (let y = first; y <= YEAR_MAX; y += interval) {
+    // Skip years too close to the edges (label would clip)
+    const px = THUMB_RADIUS + ((y - YEAR_MIN) / YEAR_RANGE) * trackPx;
+    if (px > 16 && px < sliderPx - 6) result.push(y);
+  }
+  return result;
+}
+
+function fmtMarker(y: number): string {
+  if (y < 0) return `${-y}`;
+  return String(y);
+}
+
 export function TimelineBar({
   currentDateInt,
   stepSize,
@@ -62,6 +93,19 @@ export function TimelineBar({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const sliderTrackRef = useRef<HTMLDivElement>(null);
+  const [sliderPx, setSliderPx] = useState(0);
+
+  useEffect(() => {
+    const el = sliderTrackRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => setSliderPx(entries[0].contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const yearMarkers = useMemo(() => getYearMarkers(sliderPx), [sliderPx]);
+
 
   const startEdit = useCallback(() => {
     setDraft(displayDate(currentDateInt, stepSize));
@@ -143,8 +187,8 @@ export function TimelineBar({
         </div>
       </div>
 
-      {/* Slider — operates in dateInt space */}
-      <div style={styles.sliderTrack}>
+      {/* Slider + year bookmark strip */}
+      <div style={styles.sliderTrack} ref={sliderTrackRef}>
         <input
           type="range"
           min={DATE_MIN}
@@ -154,6 +198,18 @@ export function TimelineBar({
           onChange={(e) => onSeek(normalizeDateInt(Number(e.target.value)))}
           style={styles.slider}
         />
+        <div style={styles.yearStrip}>
+          {yearMarkers.map((y) => {
+            const trackPx = sliderPx - THUMB_RADIUS * 2;
+            const left = THUMB_RADIUS + ((y - YEAR_MIN) / YEAR_RANGE) * trackPx;
+            return (
+              <button key={y} onClick={() => onSeek(encodeDate(y, 1, 1))} title={`Jump to ${fmtMarker(y)}`} style={{ ...styles.markerBtn, left }}>
+                <div style={styles.markerTick} />
+                {fmtMarker(y)}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -165,7 +221,7 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 0,
     left: 0,
     right: 0,
-    height: 64,
+    height: TIMELINE_BAR_HEIGHT,
     background: '#ffffff',
     display: 'flex',
     alignItems: 'center',
@@ -214,8 +270,29 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'inherit',
     transition: 'background 0.15s',
   },
-  sliderTrack: { flex: 1, display: 'flex', alignItems: 'center' },
+  sliderTrack: { flex: 1, position: 'relative', display: 'flex', alignItems: 'center' },
   slider: { width: '100%', accentColor: '#3366cc', height: 4, cursor: 'pointer' },
+  yearStrip: { position: 'absolute', top: '100%', left: 0, right: 0, height: 14, pointerEvents: 'none' },
+  markerBtn: {
+    position: 'absolute',
+    transform: 'translateX(-50%)',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
+    fontSize: 9,
+    fontWeight: 500,
+    color: '#b0b7be',
+    fontFamily: 'inherit',
+    lineHeight: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 1,
+    whiteSpace: 'nowrap',
+    pointerEvents: 'auto',
+  },
+  markerTick: { width: 1, height: 3, background: '#d0d5da', borderRadius: 1 },
   yearBlock: { flexShrink: 0, minWidth: 130, textAlign: 'left' },
   yearLabel: {
     fontSize: 26,

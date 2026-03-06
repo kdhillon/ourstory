@@ -14,6 +14,8 @@ interface MajorEvent {
 
 const PANEL_HEIGHT = 44;
 
+export type BBox = [number, number, number, number]; // [west, south, east, north]
+
 interface Props {
   geojson: GeoJSON.FeatureCollection;
   currentDateInt: number;
@@ -21,12 +23,13 @@ interface Props {
   onNavigateToFeature: (feature: FeatureProperties) => void;
   selectedQid: string | null;
   onSelectQid: (qid: string | null) => void;
+  onFitBounds?: (bbox: BBox) => void;
   onHasEvents?: (has: boolean) => void;
 }
 
 export { PANEL_HEIGHT as MAJOR_EVENTS_PANEL_HEIGHT };
 
-export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigateToFeature, selectedQid, onSelectQid, onHasEvents }: Props) {
+export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigateToFeature, selectedQid, onSelectQid, onFitBounds, onHasEvents }: Props) {
   const majorEvents = useMemo<MajorEvent[]>(() => {
     const counts = new Map<string, MajorEvent>();
     const effectiveNow = currentDateInt + stepSize - 1;
@@ -67,7 +70,31 @@ export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigate
       return;
     }
     onSelectQid(ev.qid);
-  }, [selectedQid, onSelectQid]);
+
+    // Compute bbox of all currently active events belonging to this major event
+    if (!onFitBounds) return;
+    const effectiveNow = currentDateInt + stepSize - 1;
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+    let hasCoords = false;
+    for (const f of geojson.features) {
+      const p = f.properties as FeatureProperties;
+      if (p.featureType !== 'event' || p.yearStart == null) continue;
+      if (!f.geometry || f.geometry.type !== 'Point') continue;
+      if (!(p.partOf ?? []).includes(ev.qid)) continue;
+      const [startInt, endInt] = eventDateRange(
+        p.yearStart, p.monthStart, p.dayStart,
+        p.yearEnd,   p.monthEnd,   p.dayEnd,
+      );
+      if (!(startInt <= effectiveNow && currentDateInt <= endInt + Math.min(LINGER_STEPS * stepSize, LINGER_MAX))) continue;
+      const [lon, lat] = (f.geometry as GeoJSON.Point).coordinates;
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      hasCoords = true;
+    }
+    if (hasCoords) onFitBounds([minLon, minLat, maxLon, maxLat]);
+  }, [selectedQid, onSelectQid, onFitBounds, geojson, currentDateInt, stepSize]);
 
   useEffect(() => {
     onHasEvents?.(majorEvents.length > 0);

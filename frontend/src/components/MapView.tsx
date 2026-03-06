@@ -10,6 +10,24 @@ import { encodeDate, eventDateRange, STEP_YEAR, decodeDate } from '../hooks/useT
 const LINGER_STEPS = 5;
 const LINGER_MAX = 3 * STEP_YEAR;
 
+// Zoom offset added per polity type on top of the sitelinks-based base zoom.
+// Higher = needs more zoom to appear. Major polities (empire, kingdom) show early;
+// smaller or noisier types (principality, people, other) are held back.
+const POLITY_ZOOM_OFFSET: Record<string, number> = {
+  empire:        2,
+  kingdom:       2,
+  republic:      2,
+  papacy:        2,
+  sultanate:     3,
+  confederation: 3,
+  colony:        3,
+  principality:  3,
+  people:        4,
+  other:         4,
+};
+// Principalities with no linked territory are hidden until this zoom level minimum.
+const UNLINKED_PRINCIPALITY_MIN_ZOOM = 8;
+
 // ─── Canvas icons ────────────────────────────────────────────────────────────
 //
 // Each event category gets a pre-rendered canvas image: colored circle + white
@@ -88,6 +106,8 @@ interface Props {
   activePolityCategories: Set<Category>;
   onSelectFeature: (props: FeatureProperties, stack: StackInfo) => void;
   zoomRequest?: ZoomRequest | null;
+  /** Fit the map to a bounding box (used when selecting a major event chip). */
+  fitBoundsRequest?: { bbox: [number, number, number, number]; id: number } | null;
   /** polityId → hideUntilYear: territories for these polities are hidden before that year */
   hiddenNations?: Map<string, number>;
   /** Polity IDs suppressed because a more-specific co-capital polity is active at this year */
@@ -152,7 +172,7 @@ interface HoveredLabel {
   y: number;
 }
 
-export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter }: Props) {
+export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const updateFilterRef = useRef<() => void>(() => {});
@@ -297,14 +317,13 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         paint: labelPaint,
       });
 
-      // Capital star: shown at the centre of every polity except principalities
+      // Capital star: shown at the centre of every polity
       map.addLayer({
         id: 'stars-polity',
         type: 'symbol',
         source: 'features',
         filter: ['all',
           ['==', ['get', 'featureType'], 'polity'],
-          ['!=', ['get', 'polityType'], 'principality'],
           ['<=', ['coalesce', ['get', '_minZoom'], 2], ['zoom']],
         ] as maplibregl.FilterSpecification,
         layout: {
@@ -502,8 +521,12 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
 
       // Polities use their own independent filter set
       if (isPolity) {
-        // Require a start date; null end date means the polity is still active
+        // Require a start date always.
+        // Null end date = "still active" — only valid for modern nation types (republic, kingdom).
+        // Everything else (colony, empire, people, sultanate, etc.) must have an explicit end date.
+        const STILL_ACTIVE_TYPES = new Set(['republic', 'kingdom']);
         if (p.yearStart == null) return [];
+        if (p.yearEnd == null && !STILL_ACTIVE_TYPES.has(p.polityType ?? '')) return [];
 
         const catOk = p.categories.some((c) => activePolityCategories.has(c));
         if (!catOk) return [];
@@ -529,10 +552,14 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
           if (threshold !== undefined && currentYear < threshold) return [];
         }
 
-        // Zoom-gate polities more aggressively than events to reduce clutter.
-        // Each tier is +2 zoom levels above the equivalent event threshold.
+        // Zoom threshold: sitelinks give a base zoom (more sitelinks = visible earlier),
+        // then a per-type offset is added so noisier polity types appear later.
         const sl = p.sitelinksCount ?? null;
-        const _minZoom = sl === null ? 4 : sl >= 25 ? 3 : sl >= 10 ? 4 : sl >= 3 ? 6 : 8;
+        const sitelinkZoom = sl === null ? 2 : sl >= 25 ? 1 : sl >= 10 ? 2 : sl >= 3 ? 4 : 6;
+        const typeOffset   = POLITY_ZOOM_OFFSET[p.polityType ?? ''] ?? 3;
+        const baseZoom     = sitelinkZoom + typeOffset;
+        const isUnlinkedPrincipality = p.polityType === 'principality' && !hasTerritory.has(p.id);
+        const _minZoom = isUnlinkedPrincipality ? Math.max(baseZoom, UNLINKED_PRINCIPALITY_MIN_ZOOM) : baseZoom;
 
         return [{ ...f, properties: { ...f.properties, _opacity: 1.0, _labelOpacity: 1.0, _color, _minZoom } }];
       }
@@ -619,8 +646,9 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         if (p.polityId && hiddenNations?.has(p.polityId)) {
           return [{ ...f, properties: { ...f.properties, polityId: null, polityName: null, politySlug: null, polityType: null } }];
         }
-        // Hide territory if a more-specific co-capital polity is active now
-        if (p.polityId && suppressed.has(p.polityId)) return [];
+        // Note: suppressedPolityIds is intentionally NOT applied to territory polygons.
+        // Capital-conflict suppression is only for polity marker dots — territory shapes
+        // have explicit geographic bounds and should always render within their time interval.
         return [f];
       });
       terrSource.setData({ type: 'FeatureCollection', features: visibleTerritories });
@@ -654,6 +682,22 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
     if (map.isStyleLoaded()) doFly();
     else map.once('load', doFly);
   }, [zoomRequest, geojson]);
+
+  useEffect(() => {
+    if (!fitBoundsRequest) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const [west, south, east, north] = fitBoundsRequest.bbox;
+    const doFit = () => {
+      map.fitBounds([[west, south], [east, north]], {
+        padding: { top: 80, bottom: 140, left: 80, right: 420 },
+        maxZoom: 8,
+        duration: 900,
+      });
+    };
+    if (map.isStyleLoaded()) doFit();
+    else map.once('load', doFit);
+  }, [fitBoundsRequest]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>

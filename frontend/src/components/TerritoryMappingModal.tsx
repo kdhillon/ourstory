@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose, onPolityImported, onSaved }: Props) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(hbName);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 

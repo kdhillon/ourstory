@@ -27,11 +27,9 @@ export function AboutPage({ onBack }: Props) {
 
         <h1 style={styles.h1}>OpenHistory</h1>
         <p style={styles.lead}>
-          An open-source interactive atlas of human history. Scroll through time, watch events
-          unfold, and explore civilizations rising and falling.
+          An open-source interactive atlas of human history. Scroll through history and learn
+          the story of humankind.
         </p>
-
-        <div style={styles.statusBadge}>🚧 Work in progress — data coverage is limited and expanding</div>
 
         <hr style={styles.rule} />
 
@@ -141,15 +139,6 @@ export function AboutPage({ onBack }: Props) {
           View on GitHub
         </a>
 
-        <h2 style={styles.h2}>Tech Stack</h2>
-        <ul style={styles.ul}>
-          <li>Map: <a style={styles.a} href="https://maplibre.org" target="_blank" rel="noreferrer">MapLibre GL JS</a> with <a style={styles.a} href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> tiles</li>
-          <li>Frontend: React 18, TypeScript, Vite</li>
-          <li>Backend: FastAPI (Python), PostgreSQL</li>
-          <li>Data: Wikidata SPARQL + Wikipedia REST API + historical-basemaps GeoJSON</li>
-          <li>Hosting: <a style={styles.a} href="https://railway.app" target="_blank" rel="noreferrer">Railway</a></li>
-        </ul>
-
         <h2 style={styles.h2}>Issues &amp; Contributions</h2>
         <p style={styles.p}>
           Found a data error or have a feature idea? Open an issue or pull request on{' '}
@@ -161,7 +150,8 @@ export function AboutPage({ onBack }: Props) {
           Event &amp; polity data © <a style={styles.a} href="https://www.wikidata.org" target="_blank" rel="noreferrer">Wikidata</a> contributors (CC BY-SA) ·{' '}
           Territory polygons © <a style={styles.a} href="https://github.com/aourednik/historical-basemaps" target="_blank" rel="noreferrer">historical-basemaps</a> contributors (GPL-3.0) ·{' '}
           Map © <a style={styles.a} href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> ·{' '}
-          Code © 2026 OpenHistory contributors (MIT)
+          Code © 2026 OpenHistory contributors (MIT) ·{' '}
+          Created by <a style={styles.a} href="https://github.com/KDhillon" target="_blank" rel="noreferrer">Kyle Dhillon</a>
         </p>
 
       </div>

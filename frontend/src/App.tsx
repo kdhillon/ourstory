@@ -1,13 +1,14 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { checkLogin } from './lib/wikidataApi';
-import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, fetchManualPolities } from './lib/api';
+import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, fetchManualPolities, fetchHiddenFeatures, setFeatureHidden } from './lib/api';
 import { MapView } from './components/MapView';
 import { TerritoryMappingModal } from './components/TerritoryMappingModal';
-import { TimelineBar } from './components/TimelineBar';
+import { TimelineBar, TIMELINE_BAR_HEIGHT } from './components/TimelineBar';
 import { InfoPanel } from './components/InfoPanel';
 import { CategoryFilter } from './components/CategoryFilter';
 import { DataExplorer } from './components/DataExplorer';
 import { AboutPage } from './components/AboutPage';
+import { WelcomeModal, shouldShowWelcome } from './components/WelcomeModal';
 import { MajorEventsPanel, MAJOR_EVENTS_PANEL_HEIGHT } from './components/MajorEventsPanel';
 import { DataOverlay } from './components/DataOverlay';
 import { useTimeline, encodeDate, decodeDate, STEP_YEAR } from './hooks/useTimeline';
@@ -78,22 +79,20 @@ export default function App() {
     useTerritoriesSource({ currentYear, stepSize: timeline.stepSize });
 
   const { activeSnapshotYear, prevSnapshotYear, nextSnapshotYear } = useMemo(() => {
-    let active: number | null = null;
-    for (const f of territoryFeatures) {
-      const p = f.properties as { intervalStart: number; intervalEnd: number | null; snapshotYear: number };
-      if (p.intervalStart <= currentYear && (p.intervalEnd === null || currentYear <= p.intervalEnd)) {
-        active = p.snapshotYear;
-        break;
-      }
+    // Active snapshot = highest snapshot year that has started (snapshotYear <= currentYear).
+    // We use snapshotYears directly rather than iterating territory features, which avoids
+    // edge-case bugs where a sub_year_end on an older snapshot coincidentally equals currentYear
+    // (e.g. First Empire sub_year_end=1815 matching at year=1815, overriding the 1815 snapshot).
+    let idx = -1;
+    for (let i = snapshotYears.length - 1; i >= 0; i--) {
+      if (snapshotYears[i] <= currentYear) { idx = i; break; }
     }
-
-    const idx = active != null ? snapshotYears.indexOf(active) : -1;
     return {
-      activeSnapshotYear: active,
+      activeSnapshotYear: idx >= 0 ? snapshotYears[idx] : null,
       prevSnapshotYear: idx > 0 ? snapshotYears[idx - 1] : null,
       nextSnapshotYear: idx >= 0 && idx < snapshotYears.length - 1 ? snapshotYears[idx + 1] : null,
     };
-  }, [territoryFeatures, currentYear, snapshotYears]);
+  }, [currentYear, snapshotYears]);
 
   // Map of id → patched feature for manual edits (applied on top of base features)
   const [overrideMap, setOverrideMap] = useState<Map<string, GeoJSON.Feature>>(new Map());
@@ -104,7 +103,7 @@ export default function App() {
     new Set(EVENT_CATEGORIES as Category[]),
   );
   const [activePolityCategories, setActivePolityCategories] = useState<Set<Category>>(
-    new Set(POLITY_CATEGORIES.filter((c) => c !== 'principality') as Category[]),
+    new Set(POLITY_CATEGORIES as Category[]),
   );
   const [zoomRequest, setZoomRequest] = useState<ZoomRequest | null>(null);
   const zoomIdRef = useRef(0);
@@ -116,11 +115,16 @@ export default function App() {
   // QID of the major event chip selected in the bottom bar (null = no filter)
   const [majorEventFilter, setMajorEventFilter] = useState<string | null>(null);
   const [hasMajorEvents, setHasMajorEvents] = useState(false);
+  const [fitBoundsRequest, setFitBoundsRequest] = useState<{ bbox: [number,number,number,number]; id: number } | null>(null);
+  const fitBoundsIdRef = useRef(0);
   // Mappings saved in this session: "hbName::snapshotYear" → { polityId, polityName }
   // Used to immediately reflect matched territory labels without re-exporting
   const [localMappings, setLocalMappings] = useState<Map<string, { polityId: string; polityName: string }>>(new Map());
   // Polygon IDs explicitly unlinked this session (per-polygon, not group-level)
   const [localPolygonUnlinks, setLocalPolygonUnlinks] = useState<Set<string>>(new Set());
+  const [showWelcome, setShowWelcome] = useState(() => shouldShowWelcome());
+  // IDs of features the user has manually hidden from the map
+  const [hiddenFeatureIds, setHiddenFeatureIds] = useState<Set<string>>(new Set());
 
   const territoriesFeatureCollection = useMemo(
     (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: territoryFeatures }),
@@ -206,11 +210,14 @@ export default function App() {
   // Derive the GeoJSON passed to MapView: static features + windowed events + overrides
   const geojson = useMemo((): GeoJSON.FeatureCollection => {
     const baseFeatures = [...staticFeatures, ...eventFeatures];
-    const features = overrideMap.size > 0
+    const withOverrides = overrideMap.size > 0
       ? baseFeatures.map((f) => overrideMap.get((f.properties as { id: string }).id) ?? f)
       : baseFeatures;
+    const features = hiddenFeatureIds.size > 0
+      ? withOverrides.filter((f) => !hiddenFeatureIds.has((f.properties as { id: string }).id))
+      : withOverrides;
     return { type: 'FeatureCollection', features };
-  }, [staticFeatures, eventFeatures, overrideMap]);
+  }, [staticFeatures, eventFeatures, overrideMap, hiddenFeatureIds]);
 
   useEffect(() => {
     checkLogin().then((username) => setWikiAuth(username));
@@ -221,6 +228,19 @@ export default function App() {
     fetchHiddenNations()
       .then((list) => setHiddenNations(new Map(list.map((h) => [h.polityId, h.hideUntilYear]))))
       .catch(() => {/* API not running — no hidden nations applied */});
+  }, []);
+
+  useEffect(() => {
+    fetchHiddenFeatures()
+      .then((ids) => setHiddenFeatureIds(new Set(ids)))
+      .catch(() => {/* API not running */});
+  }, []);
+
+  const handleHideFeature = useCallback((id: string, type: 'polity' | 'event') => {
+    setHiddenFeatureIds((prev) => new Set(prev).add(id));
+    setFeatureHidden(id, type, true).catch(console.error);
+    // Close the panel since the feature is now hidden
+    setSelectedFeature(null);
   }, []);
 
   const handleUnlinkPolygon = useCallback((polygonId: string) => {
@@ -410,7 +430,7 @@ export default function App() {
         onOpenData={() => navigate('/data')}
       />
 
-      <div style={{ position: 'absolute', inset: `104px 0 ${64 + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
+      <div style={{ position: 'absolute', inset: `104px 0 ${TIMELINE_BAR_HEIGHT + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
         <DataOverlay
           windowInfo={windowInfo}
           isLoading={eventsLoading}
@@ -435,6 +455,7 @@ export default function App() {
           activePolityCategories={activePolityCategories}
           onSelectFeature={handleSelectFeature}
           zoomRequest={zoomRequest}
+          fitBoundsRequest={fitBoundsRequest}
           hiddenNations={hiddenNations}
           suppressedPolityIds={suppressedPolityIds}
           polityIdsWithTerritory={polityIdsWithTerritory}
@@ -455,6 +476,7 @@ export default function App() {
         onFeatureUpdated={handleFeatureUpdated}
         hiddenNations={hiddenNations}
         onToggleHiddenNation={handleToggleHiddenNation}
+        onHideFeature={handleHideFeature}
       />
 
       <MajorEventsPanel
@@ -464,6 +486,7 @@ export default function App() {
         onNavigateToFeature={handleNavigateToFeature}
         selectedQid={majorEventFilter}
         onSelectQid={setMajorEventFilter}
+        onFitBounds={(bbox) => setFitBoundsRequest({ bbox, id: ++fitBoundsIdRef.current })}
         onHasEvents={setHasMajorEvents}
       />
 
@@ -501,6 +524,7 @@ export default function App() {
           }}
         />
       )}
+      {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
     </div>
   );
 }
