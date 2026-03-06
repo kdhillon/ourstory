@@ -31,9 +31,21 @@ python3 scripts/export_geojson.py
 ```
 
 ## Current state
-- Data loaded: **1790–1810 only** (2,125 events, 742 locations). Other periods need pipeline runs.
+- **Events**: ~16,600 (1600–2025), with heaviest coverage 1770–1820 and 1970–1999
+- **Locations**: ~4,034 | **Polities**: ~7,096 | **Territory polygons**: ~10,223 across 53 snapshots
 - Deployed on Railway: frontend at `openhistory.app`, backend at `api.openhistory.app`
-- GeoJSON lives at `frontend/src/data/seed.geojson` — regenerate after pipeline runs
+- `seed.geojson` lives at `frontend/public/data/seed.geojson` — fetched at runtime (not bundled); regenerate after pipeline runs
+
+## Licenses (important)
+- **Code**: MIT
+- **Event/location/polity data**: CC BY-SA (Wikidata/Wikipedia)
+- **Territory polygons**: GPL-3.0 (historical-basemaps by A. Ourednik) — any redistribution of modified territory data must also be GPL-3.0
+
+## Wikidata edit architecture
+Edits made via the in-app edit UI (dates, locations, descriptions) are submitted **directly to Wikidata** via the Wikidata OAuth API — they do not go into our DB. The DB is populated by re-running the pipeline after Wikidata updates propagate. Territory mappings (grey → yellow) are the exception: those save to our DB only.
+
+## Snapshot list in About page
+`frontend/src/components/AboutPage.tsx` has a **hardcoded** `SNAPSHOT_YEARS` array. This is not queried from the DB — it must be updated manually whenever territory snapshots are added or removed. Currently 46 items in code vs 53 in the DB (out of sync as of 2026-03-05).
 
 ## Territory Linking System
 
