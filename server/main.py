@@ -891,6 +891,27 @@ def get_territory_snapshots():
         conn.close()
 
 
+@app.patch("/api/snapshot-polygons/{polygon_id}/unlink", status_code=204)
+def unlink_polygon(polygon_id: str):
+    """
+    Mark a single snapshot_polygon as explicitly_unlinked=TRUE.
+    The polygon stops inheriting its hb_name group mapping and renders as 'Unknown'.
+    Other polygons sharing the same hb_name are unaffected.
+    """
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE snapshot_polygons SET explicitly_unlinked = TRUE WHERE id = %s",
+            (polygon_id,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, f"Polygon {polygon_id} not found.")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @app.get("/api/territories")
 def get_territories(year_min: int, year_max: int):
     """
@@ -914,7 +935,9 @@ def get_territories(year_min: int, year_max: int):
                 sp.id, sp.snapshot_year, sp.hb_name, sp.hb_abbrevn,
                 sp.border_precision, sp.boundary, sp.accuracy,
                 sp.sub_year_start, sp.sub_year_end, sp.source_polygon_id,
-                COALESCE(sp.polity_id, tnm.polity_id) AS polity_id,
+                sp.explicitly_unlinked,
+                CASE WHEN sp.explicitly_unlinked THEN NULL
+                     ELSE COALESCE(sp.polity_id, tnm.polity_id) END AS polity_id,
                 p.slug  AS polity_slug,
                 p.name  AS polity_name,
                 p.polity_type,
@@ -962,22 +985,24 @@ def get_territories(year_min: int, year_max: int):
                 "type": "Feature",
                 "geometry": tr["boundary"],
                 "properties": {
-                    "featureType":     "territory",
-                    "snapshotYear":    snap_yr,
-                    "intervalStart":   interval_start,
-                    "intervalEnd":     interval_end,
-                    "hbName":          tr["hb_name"],
-                    "hbAbbrevn":       tr["hb_abbrevn"],
-                    "borderPrecision": tr["border_precision"],
-                    "polityId":        str(tr["polity_id"]) if tr["polity_id"] else None,
-                    "politySlug":      tr["polity_slug"],
-                    "polityName":      tr["polity_name"],
-                    "polityType":      polity_type,
-                    "polityYearStart": poly_yr_start,
-                    "polityYearEnd":   tr["polity_year_end"],
-                    "accuracy":        tr["accuracy"],
-                    "sourcePolygonId": str(tr["source_polygon_id"]) if tr["source_polygon_id"] else None,
-                    "_color":          color,
+                    "featureType":        "territory",
+                    "polygonId":          str(tr["id"]),
+                    "snapshotYear":       snap_yr,
+                    "intervalStart":      interval_start,
+                    "intervalEnd":        interval_end,
+                    "hbName":             tr["hb_name"],
+                    "hbAbbrevn":          tr["hb_abbrevn"],
+                    "borderPrecision":    tr["border_precision"],
+                    "explicitlyUnlinked": tr["explicitly_unlinked"],
+                    "polityId":           str(tr["polity_id"]) if tr["polity_id"] else None,
+                    "politySlug":         tr["polity_slug"],
+                    "polityName":         tr["polity_name"],
+                    "polityType":         polity_type,
+                    "polityYearStart":    poly_yr_start,
+                    "polityYearEnd":      tr["polity_year_end"],
+                    "accuracy":           tr["accuracy"],
+                    "sourcePolygonId":    str(tr["source_polygon_id"]) if tr["source_polygon_id"] else None,
+                    "_color":             color,
                 },
             })
 

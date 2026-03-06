@@ -85,6 +85,15 @@ export async function fetchPolityOverrides(): Promise<GeoJSON.FeatureCollection>
   return res.json();
 }
 
+/**
+ * Mark a single territory polygon as explicitly unlinked from its group name mapping.
+ * Only affects this polygon — others sharing the same hb_name remain linked.
+ */
+export async function unlinkPolygon(polygonId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/snapshot-polygons/${polygonId}/unlink`, { method: 'PATCH' });
+  if (!res.ok) throw new Error(`API PATCH unlink polygon failed (${res.status})`);
+}
+
 export interface HiddenNation {
   polityId: string;
   hideUntilYear: number;

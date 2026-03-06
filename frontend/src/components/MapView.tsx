@@ -96,8 +96,8 @@ interface Props {
   polityIdsWithTerritory?: Set<string>;
   /** Called when user clicks an unmatched territory (no polity linked) */
   onUnmatchedTerritoryClick?: (hbName: string, snapshotYear: number) => void;
-  /** Called when user clicks × to unlink a matched territory from its polity */
-  onUnlinkTerritory?: (hbName: string, snapshotYear: number) => void;
+  /** Called when user clicks × to unlink a single polygon from its polity */
+  onUnlinkPolygon?: (polygonId: string) => void;
   /** When set, only events whose partOf[] includes this QID are shown */
   majorEventFilter?: string | null;
 }
@@ -145,13 +145,14 @@ function applyBorderVisibility(map: Map, visible: boolean) {
 }
 
 interface HoveredLabel {
+  polygonId: string;
   hbName: string;
   snapshotYear: number;
   x: number;
   y: number;
 }
 
-export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkTerritory, majorEventFilter }: Props) {
+export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const updateFilterRef = useRef<() => void>(() => {});
@@ -168,8 +169,8 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   showBordersRef.current = showBorders;
   const [hoveredLabel, setHoveredLabel] = useState<HoveredLabel | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onUnlinkTerritoryRef = useRef(onUnlinkTerritory);
-  onUnlinkTerritoryRef.current = onUnlinkTerritory;
+  const onUnlinkPolygonRef = useRef(onUnlinkPolygon);
+  onUnlinkPolygonRef.current = onUnlinkPolygon;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -370,6 +371,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         if (!polityId) return; // only matched territories show the unlink button
         if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; }
         setHoveredLabel({
+          polygonId: feat.properties?.polygonId as string,
           hbName: feat.properties?.hbName as string,
           snapshotYear: feat.properties?.snapshotYear as number,
           x: e.point.x,
@@ -665,7 +667,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
           }}
           onMouseLeave={() => setHoveredLabel(null)}
           onClick={() => {
-            onUnlinkTerritoryRef.current?.(hoveredLabel.hbName, hoveredLabel.snapshotYear);
+            onUnlinkPolygonRef.current?.(hoveredLabel.polygonId);
             setHoveredLabel(null);
           }}
           title="Unlink territory from polity"

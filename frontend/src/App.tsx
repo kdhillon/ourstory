@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { checkLogin } from './lib/wikidataApi';
-import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, deleteTerritoryMapping, fetchManualPolities } from './lib/api';
+import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, fetchManualPolities } from './lib/api';
 import { MapView } from './components/MapView';
 import { TerritoryMappingModal } from './components/TerritoryMappingModal';
 import { TimelineBar } from './components/TimelineBar';
@@ -119,9 +119,8 @@ export default function App() {
   // Mappings saved in this session: "hbName::snapshotYear" → { polityId, polityName }
   // Used to immediately reflect matched territory labels without re-exporting
   const [localMappings, setLocalMappings] = useState<Map<string, { polityId: string; polityName: string }>>(new Map());
-  // Territories unlinked in this session: "hbName::snapshotYear"
-  // Overrides server data until the next API window fetch
-  const [localUnlinks, setLocalUnlinks] = useState<Set<string>>(new Set());
+  // Polygon IDs explicitly unlinked this session (per-polygon, not group-level)
+  const [localPolygonUnlinks, setLocalPolygonUnlinks] = useState<Set<string>>(new Set());
 
   const territoriesFeatureCollection = useMemo(
     (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: territoryFeatures }),
@@ -129,28 +128,27 @@ export default function App() {
   );
 
   const patchedTerritories = useMemo(() => {
-    if (localMappings.size === 0 && localUnlinks.size === 0) return territoriesFeatureCollection;
+    if (localMappings.size === 0 && localPolygonUnlinks.size === 0) return territoriesFeatureCollection;
     return {
       ...territoriesFeatureCollection,
       features: territoriesFeatureCollection.features.map((f) => {
-        const p = f.properties as { hbName: string; snapshotYear: number; polityId: string | null };
-        const key = `${p.hbName}::${p.snapshotYear}`;
-        // Apply local unlinks first
-        if (localUnlinks.has(key)) {
-          return { ...f, properties: { ...f.properties, polityId: null, polityName: null } };
+        const p = f.properties as { polygonId: string; hbName: string; snapshotYear: number; polityId: string | null };
+        // Per-polygon unlink: clear polity info for this specific polygon
+        if (localPolygonUnlinks.has(p.polygonId)) {
+          return { ...f, properties: { ...f.properties, polityId: null, polityName: null, explicitlyUnlinked: true } };
         }
         // localMappings must be checked before the p.polityId early-return so that
         // territories already linked to a hidden/suppressed polity (e.g. modern Spain)
         // can be re-mapped without the existing polityId blocking the update.
+        const key = `${p.hbName}::${p.snapshotYear}`;
         const mapping = localMappings.get(key);
         if (mapping) {
           return { ...f, properties: { ...f.properties, polityId: mapping.polityId, polityName: mapping.polityName } };
         }
-        if (p.polityId) return f;
         return f;
       }),
     } as GeoJSON.FeatureCollection;
-  }, [localMappings, localUnlinks, territoriesFeatureCollection]);
+  }, [localMappings, localPolygonUnlinks, territoriesFeatureCollection]);
 
   // Pre-compute suppressed polity IDs for the current year.
   // When multiple polities share a capital, only the shortest-lived (most historically
@@ -232,17 +230,9 @@ export default function App() {
       .catch(() => {/* API not running — no hidden nations applied */});
   }, []);
 
-  const handleUnlinkTerritory = useCallback((hbName: string, snapshotYear: number) => {
-    const key = `${hbName}::${snapshotYear}`;
-    deleteTerritoryMapping(hbName, snapshotYear).catch(console.error);
-    setLocalUnlinks((prev) => new Set(prev).add(key));
-    // Also remove any local mapping for the same key
-    setLocalMappings((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
+  const handleUnlinkPolygon = useCallback((polygonId: string) => {
+    unlinkPolygon(polygonId).catch(console.error);
+    setLocalPolygonUnlinks((prev) => new Set(prev).add(polygonId));
   }, []);
 
   const handleToggleHiddenNation = useCallback((polityId: string) => {
@@ -456,7 +446,7 @@ export default function App() {
           suppressedPolityIds={suppressedPolityIds}
           polityIdsWithTerritory={polityIdsWithTerritory}
           onUnmatchedTerritoryClick={(hbName, snapshotYear) => setMappingTarget({ hbName, snapshotYear })}
-          onUnlinkTerritory={handleUnlinkTerritory}
+          onUnlinkPolygon={handleUnlinkPolygon}
           majorEventFilter={majorEventFilter}
         />
       </div>
