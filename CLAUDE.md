@@ -51,6 +51,17 @@ Edits made via the in-app edit UI (dates, locations, descriptions) are submitted
 
 See [`docs/territory-linking.md`](docs/territory-linking.md) for the full explanation of how territory linking, unlinking, and the optimistic UI work.
 
+## Indigenous Peoples & Polity Import
+
+A core value of this project is honoring indigenous communities whose histories have been erased.
+
+- **`polity_type = 'people'`** is the correct type for tribes, First Nations, indigenous peoples, ethnic groups, and confederacies. It maps to the "Peoples" filter chip (slate color `#78909C`).
+- **Manual import flow**: In the territory mapping modal, typing a search query also queries Wikidata live. Results not already in our DB appear under "From Wikipedia" with an **Import** button.
+  - `POST /api/polities/import-from-wikidata` — takes `{qid}`, fetches Wikidata entity data, classifies type (defaults to `'people'`), inserts with `pipeline_run='manual-import'`, returns GeoJSON feature.
+  - `GET /api/polities/manual` — returns all `pipeline_run='manual-import'` polities as GeoJSON. Frontend merges these on startup so they appear on the map immediately without a rebuild.
+- **After import**: the polity is live immediately in the territory mapping modal and on the map (via in-memory merge). No `/deploy` needed for it to be selectable.
+- **Pipeline**: the regular polity pipeline (`run_polities.py`) does NOT yet run broad SPARQL queries for indigenous peoples — this is a gap. Use the manual import flow or targeted pipeline runs.
+
 ## Important conventions
 - `npm run build` uses `vite build` only — MapLibre v5 has overly strict TS generics
 - DB port is **5433** locally (not 5432)

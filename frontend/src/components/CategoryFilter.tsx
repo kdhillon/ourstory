@@ -1,8 +1,5 @@
 import type { Category } from '../types';
 import { EVENT_CATEGORIES, LOCATION_CATEGORIES, POLITY_CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
-import { SettingsPanel } from './SettingsPanel';
-import type { SettingsPanelProps } from './SettingsPanel';
-
 interface Props {
   activeCategories: Set<Category>;
   onToggle: (cat: Category) => void;
@@ -10,7 +7,6 @@ interface Props {
   onTogglePolity: (cat: Category) => void;
   onOpenData: () => void;
   onOpenAbout: () => void;
-  settings: SettingsPanelProps; // windowInfo, isLoading, error
 }
 
 function GroupLabel({ label, cats, activeSet, onToggle }: {
@@ -88,28 +84,32 @@ function ChipGroup({ cats, activeCategories, onToggle }: {
   );
 }
 
-export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, onOpenAbout, settings }: Props) {
+export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, onOpenAbout }: Props) {
   return (
     <div style={styles.bar}>
-      {/* Row 1: wordmark + events */}
+      {/* Row 1: wordmark + nav buttons */}
       <div style={styles.row}>
         <div style={styles.wordmark}>OpenHistory</div>
-        <div style={styles.divider} />
-        <GroupLabel label="Events" cats={EVENT_CATEGORIES} activeSet={activeCategories} onToggle={onToggle} />
-        <ChipGroup cats={EVENT_CATEGORIES} activeCategories={activeCategories} onToggle={onToggle} />
         <div style={{ flex: 1 }} />
         <button onClick={onOpenAbout} style={styles.dataBtn}>About</button>
         <button onClick={onOpenData} style={styles.dataBtn}>Data ↗</button>
-        <SettingsPanel {...settings} />
       </div>
 
       <div style={styles.rowDivider} />
 
-      {/* Row 2: locations + polities */}
+      {/* Row 2: events + locations */}
       <div style={styles.row}>
+        <GroupLabel label="Events" cats={EVENT_CATEGORIES} activeSet={activeCategories} onToggle={onToggle} />
+        <ChipGroup cats={EVENT_CATEGORIES} activeCategories={activeCategories} onToggle={onToggle} />
+        <div style={styles.groupDivider} />
         <GroupLabel label="Locations" cats={LOCATION_CATEGORIES} activeSet={activeCategories} onToggle={onToggle} />
         <ChipGroup cats={LOCATION_CATEGORIES} activeCategories={activeCategories} onToggle={onToggle} />
-        <div style={styles.groupDivider} />
+      </div>
+
+      <div style={styles.rowDivider} />
+
+      {/* Row 3: polities */}
+      <div style={styles.row}>
         <GroupLabel label="Polities" cats={POLITY_CATEGORIES} activeSet={activePolityCategories} onToggle={onTogglePolity} />
         <ChipGroup cats={POLITY_CATEGORIES} activeCategories={activePolityCategories} onToggle={onTogglePolity} />
       </div>
@@ -134,7 +134,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 6,
     padding: '0 20px',
-    height: 44,
+    height: 34,
     overflow: 'hidden',
   },
   rowDivider: {

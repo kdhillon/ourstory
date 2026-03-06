@@ -229,7 +229,7 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
   const primaryColor = CATEGORY_COLORS[feature.primaryCategory as Category] ?? '#9E9E9E';
 
   // Build date string: null means no known date (permanent locations)
-  const isLocation = feature.featureType === 'city' || feature.featureType === 'region' || feature.featureType === 'country';
+  const isLocation = feature.featureType === 'city' || feature.featureType === 'region';
   const isPolity = feature.featureType === 'polity';
   // Format a raw year/month/day to a display string at the highest available granularity
   const fmtDate = (year: number, month: number | null | undefined, day: number | null | undefined) => {
@@ -414,8 +414,10 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
       {feature.locationName && feature.locationName !== feature.title && (() => {
         const locFeature = geojson?.features.find((f) => {
           const p = f.properties as FeatureProperties;
-          return p.title === feature.locationName &&
-            (p.featureType === 'city' || p.featureType === 'region' || p.featureType === 'country');
+          // Prefer polity match by wikidata QID (most accurate for political entities)
+          if (feature.locationWikidataQid && p.featureType === 'polity' && p.wikidataQid === feature.locationWikidataQid) return true;
+          // Fall back to location by title
+          return p.title === feature.locationName && (p.featureType === 'city' || p.featureType === 'region');
         });
         return (
           <div style={styles.meta}>
@@ -445,7 +447,7 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
           const p = f.properties as FeatureProperties;
           return feature.capitalWikidataQid
             ? p.wikidataQid === feature.capitalWikidataQid
-            : p.title === feature.capitalName && (p.featureType === 'city' || p.featureType === 'region' || p.featureType === 'country');
+            : p.title === feature.capitalName && (p.featureType === 'city' || p.featureType === 'region');
         }) : undefined;
         return (
           <>
@@ -851,7 +853,7 @@ function StackDots({ stack }: { stack: StackInfo }) {
 const styles: Record<string, React.CSSProperties> = {
   panel: {
     position: 'fixed',
-    top: 100,
+    top: 114,
     right: 16,
     width: 360,
     background: '#ffffff',

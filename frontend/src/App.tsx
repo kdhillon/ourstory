@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { checkLogin } from './lib/wikidataApi';
-import { fetchOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, deleteTerritoryMapping } from './lib/api';
+import { fetchOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, deleteTerritoryMapping, fetchManualPolities } from './lib/api';
 import { MapView } from './components/MapView';
 import { TerritoryMappingModal } from './components/TerritoryMappingModal';
 import { TimelineBar } from './components/TimelineBar';
@@ -9,6 +9,7 @@ import { CategoryFilter } from './components/CategoryFilter';
 import { DataExplorer } from './components/DataExplorer';
 import { AboutPage } from './components/AboutPage';
 import { MajorEventsPanel, MAJOR_EVENTS_PANEL_HEIGHT } from './components/MajorEventsPanel';
+import { DataOverlay } from './components/DataOverlay';
 import { useTimeline, encodeDate, decodeDate, STEP_YEAR } from './hooks/useTimeline';
 import { useEventSource } from './hooks/useEventSource';
 import { useTerritoriesSource } from './hooks/useTerritoriesSource';
@@ -20,12 +21,20 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 
 export default function App() {
   const [seedFeatureCollection, setSeedFeatureCollection] = useState<GeoJSON.FeatureCollection>(EMPTY_FC);
+  const [seedLoading, setSeedLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/data/seed.geojson')
-      .then((r) => r.json())
-      .then((data: GeoJSON.FeatureCollection) => setSeedFeatureCollection(data))
-      .catch(console.error);
+    Promise.all([
+      fetch('/data/seed.geojson').then((r) => r.json()) as Promise<GeoJSON.FeatureCollection>,
+      fetchManualPolities(),
+    ]).then(([seed, manualFeatures]) => {
+      // Merge manually imported polities (not yet in static build) into the seed collection.
+      // De-duplicate by id in case a polity was later included in a rebuild.
+      const existingIds = new Set(seed.features.map((f) => (f.properties as { id: string }).id));
+      const fresh = manualFeatures.filter((f) => !existingIds.has((f.properties as { id: string }).id));
+      setSeedFeatureCollection({ ...seed, features: [...seed.features, ...fresh] });
+      setSeedLoading(false);
+    }).catch(() => setSeedLoading(false));
   }, []);
 
   const staticFeatures = useMemo(
@@ -42,6 +51,21 @@ export default function App() {
       .sort((a, b) => a.title.localeCompare(b.title)),
     [seedFeatureCollection],
   );
+
+  const locationCount = useMemo(
+    () => seedFeatureCollection.features.filter((f) => {
+      const ft = (f.properties as { featureType: string }).featureType;
+      return ft === 'city' || ft === 'region';
+    }).length,
+    [seedFeatureCollection],
+  );
+
+  const polityCount = useMemo(
+    () => seedFeatureCollection.features.filter(
+      (f) => (f.properties as { featureType: string }).featureType === 'polity'
+    ).length,
+    [seedFeatureCollection],
+  );
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
 
   const timeline = useTimeline();
@@ -50,7 +74,7 @@ export default function App() {
   const { eventFeatures, windowInfo, isLoading: eventsLoading, error: eventsError } =
     useEventSource({ currentYear, stepSize: timeline.stepSize });
 
-  const { territoryFeatures, snapshotYears, refresh: refreshTerritories } =
+  const { territoryFeatures, snapshotYears, refresh: refreshTerritories, isLoading: territoriesLoading, error: territoriesError } =
     useTerritoriesSource({ currentYear, stepSize: timeline.stepSize });
 
   const { activeSnapshotYear, prevSnapshotYear, nextSnapshotYear } = useMemo(() => {
@@ -285,7 +309,7 @@ export default function App() {
     setStack(stackInfo);
     if (props.yearStart !== null) {
       const isStaticFeature = props.featureType === 'city' || props.featureType === 'region'
-        || props.featureType === 'country' || props.featureType === 'polity';
+        || props.featureType === 'polity';
       if (!isStaticFeature) {
         const featureDateInt = encodeDate(props.yearStart, props.monthStart ?? 1, props.dayStart ?? 1);
         const cur = timeline.currentDateInt;
@@ -394,18 +418,24 @@ export default function App() {
         onTogglePolity={handleTogglePolityCategory}
         onOpenAbout={() => navigate('/about')}
         onOpenData={() => navigate('/data')}
-        settings={{
-            windowInfo,
-            isLoading: eventsLoading,
-            error: eventsError,
-            snapshotYear: activeSnapshotYear,
-            prevSnapshotYear,
-            nextSnapshotYear,
-            onSeekToSnapshot: (y) => timeline.seek(encodeDate(y, 1, 1)),
-          }}
       />
 
-      <div style={{ position: 'absolute', inset: `89px 0 ${64 + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
+      <div style={{ position: 'absolute', inset: `104px 0 ${64 + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
+        <DataOverlay
+          windowInfo={windowInfo}
+          isLoading={eventsLoading}
+          error={eventsError}
+          snapshotYear={activeSnapshotYear}
+          prevSnapshotYear={prevSnapshotYear}
+          nextSnapshotYear={nextSnapshotYear}
+          onSeekToSnapshot={(y) => timeline.seek(encodeDate(y, 1, 1))}
+          territoriesLoading={territoriesLoading}
+          territoriesError={territoriesError}
+          seedLoading={seedLoading}
+          locationCount={locationCount}
+          polityCount={polityCount}
+          onOpenAbout={() => navigate('/about')}
+        />
         <MapView
           geojson={geojson}
           territoriesGeojson={patchedTerritories}
@@ -466,6 +496,12 @@ export default function App() {
           snapshotYear={mappingTarget.snapshotYear}
           polities={polityFeatures}
           onClose={() => setMappingTarget(null)}
+          onPolityImported={(feature) => {
+            setSeedFeatureCollection((prev) => ({
+              ...prev,
+              features: [...prev.features, feature],
+            }));
+          }}
           onSaved={(polityId, polityName) => {
             setLocalMappings((m) => new Map(m).set(
               `${mappingTarget.hbName}::${mappingTarget.snapshotYear}`,

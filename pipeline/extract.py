@@ -954,6 +954,19 @@ _POLITY_PEOPLE: set[str] = {
     "Q179062",   # chiefdom (duplicate resolution)
     "Q131596",   # indigenous people
     "Q215628",   # people (ethnic)
+    "Q271445",   # band society
+    "Q4358176",  # indigenous nation
+    "Q484736",   # First Nation (Canada)
+    "Q1137806",  # Native American tribe
+}
+
+_POLITY_COLONY: set[str] = {
+    "Q133156",    # colony
+    "Q164142",    # protectorate
+    "Q12356456",  # viceroyalty
+    "Q5036886",   # captaincy general
+    "Q1351282",   # crown colony
+    "Q185441",    # dependency
 }
 
 # P31 values that unambiguously indicate a non-polity entity.
@@ -992,6 +1005,7 @@ _POLITY_EXCLUDE_P31: set[str] = {
 _ALL_POLITY_P31: set[str] = (
     _POLITY_EMPIRE | _POLITY_KINGDOM | _POLITY_PRINCIPALITY | _POLITY_REPUBLIC
     | _POLITY_CONFEDERATION | _POLITY_SULTANATE | _POLITY_PAPACY | _POLITY_PEOPLE
+    | _POLITY_COLONY
 )
 
 
@@ -1051,6 +1065,8 @@ def classify_polity_type(
         if qid in _POLITY_KINGDOM:       return "kingdom"
     for qid in p31_qids:
         if qid in _POLITY_PRINCIPALITY:  return "principality"
+    for qid in p31_qids:
+        if qid in _POLITY_COLONY:        return "colony"
     for qid in p31_qids:
         if qid in _POLITY_PEOPLE:        return "people"
 
@@ -1118,6 +1134,14 @@ def classify_polity_type_from_name(name: str) -> str:
         "princely state", "native state",
     )):
         return "principality"
+
+    # Colony / dependency (subordinate to a metropole)
+    if any(w in n for w in (
+        "colony", "colonial", "protectorate", "viceroyalty", "viceroy",
+        "captaincy general", "captaincy-general", "crown colony",
+        "dependency", "overseas territory",
+    )):
+        return "colony"
 
     return "other"
 

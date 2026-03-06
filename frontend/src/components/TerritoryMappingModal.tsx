@@ -1,33 +1,56 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { FeatureProperties } from '../types';
-import { saveTerritoryMapping } from '../lib/api';
+import { saveTerritoryMapping, importPolityFromWikidata } from '../lib/api';
+import { searchEntities } from '../lib/wikidataApi';
+import type { EntityResult } from '../lib/wikidataApi';
 
 interface Props {
   hbName: string;
   snapshotYear: number;
   polities: FeatureProperties[];
   onClose: () => void;
-  /** Called immediately after a successful save */
+  onPolityImported?: (feature: GeoJSON.Feature) => void;
   onSaved?: (polityId: string, polityName: string) => void;
 }
 
-export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose, onSaved }: Props) {
+export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose, onPolityImported, onSaved }: Props) {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // Wikidata search state
+  const [wdResults, setWdResults] = useState<EntityResult[]>([]);
+  const [wdLoading, setWdLoading] = useState(false);
+  const [importingQid, setImportingQid] = useState<string | null>(null);
+  const wdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
+  // Local polity search
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     if (!q) return polities.slice(0, 40);
-    return polities
-      .filter((p) => p.title.toLowerCase().includes(q))
-      .slice(0, 40);
+    return polities.filter((p) => p.title.toLowerCase().includes(q)).slice(0, 40);
   }, [query, polities]);
+
+  const existingQids = useMemo(() => new Set(polities.map((p) => p.wikidataQid).filter(Boolean)), [polities]);
+
+  // Wikidata search — debounced, filters out QIDs already in DB
+  useEffect(() => {
+    if (wdTimerRef.current) clearTimeout(wdTimerRef.current);
+    const q = query.trim();
+    if (!q) { setWdResults([]); return; }
+    wdTimerRef.current = setTimeout(async () => {
+      setWdLoading(true);
+      try {
+        const results = await searchEntities(q);
+        setWdResults(results.filter((r) => !existingQids.has(r.id)));
+      } catch { setWdResults([]); }
+      finally { setWdLoading(false); }
+    }, 400);
+    return () => { if (wdTimerRef.current) clearTimeout(wdTimerRef.current); };
+  }, [query, existingQids]);
 
   const selected = polities.find((p) => p.id === selectedId) ?? null;
 
@@ -43,6 +66,21 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
     }
   }
 
+  async function handleImport(r: EntityResult) {
+    setImportingQid(r.id);
+    try {
+      const feature = await importPolityFromWikidata(r.id);
+      onPolityImported?.(feature);
+      // Auto-select the newly imported polity
+      const props = feature.properties as FeatureProperties;
+      setSelectedId(props.id);
+    } catch (e) {
+      console.error('Import failed:', e);
+    } finally {
+      setImportingQid(null);
+    }
+  }
+
   const overlay: React.CSSProperties = {
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -51,9 +89,10 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
 
   const card: React.CSSProperties = {
     background: '#1e2433', color: '#e8eaf0', borderRadius: 10,
-    width: 420, maxWidth: '95vw', padding: '20px 22px 18px',
+    width: 440, maxWidth: '95vw', padding: '20px 22px 18px',
     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
     display: 'flex', flexDirection: 'column', gap: 14,
+    maxHeight: '85vh', overflow: 'hidden',
   };
 
   return (
@@ -69,9 +108,6 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
         {status === 'saved' ? (
           <div style={{ textAlign: 'center', padding: '14px 0' }}>
             <div style={{ color: '#66bb6a', fontSize: 15, marginBottom: 6 }}>✓ Mapping saved</div>
-            <div style={{ fontSize: 12, color: '#778' }}>
-              Re-run <code>import-territories.py --snapshot {snapshotYear}</code> to apply
-            </div>
             <button onClick={onClose} style={btnStyle('#3a4560')}>Close</button>
           </div>
         ) : (
@@ -88,30 +124,74 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
               }}
             />
 
-            <div style={{
-              maxHeight: 220, overflowY: 'auto', border: '1px solid #2a3450',
-              borderRadius: 6, background: '#11172a',
-            }}>
-              {filtered.length === 0 && (
-                <div style={{ padding: '12px', color: '#556', fontSize: 13 }}>No matches</div>
-              )}
-              {filtered.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => setSelectedId(p.id)}
-                  style={{
-                    padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #1e2a3e',
-                    background: p.id === selectedId ? '#2a3a5a' : 'transparent',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-                  }}
-                >
-                  <span style={{ fontSize: 13 }}>{p.title}</span>
-                  <span style={{ fontSize: 11, color: '#778', marginLeft: 10, whiteSpace: 'nowrap' }}>
-                    {p.yearStart ?? '?'}–{p.yearEnd ?? '∞'}
-                    {p.polityType ? ` · ${p.polityType}` : ''}
-                  </span>
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0 }}>
+              {/* Local results */}
+              <div style={{
+                border: '1px solid #2a3450', borderRadius: 6, background: '#11172a', flexShrink: 0,
+              }}>
+                {filtered.length === 0 && (
+                  <div style={{ padding: '10px 12px', color: '#556', fontSize: 13 }}>No local matches</div>
+                )}
+                {filtered.map((p) => (
+                  <div
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    style={{
+                      padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #1e2a3e',
+                      background: p.id === selectedId ? '#2a3a5a' : 'transparent',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                    }}
+                  >
+                    <span style={{ fontSize: 13 }}>{p.title}</span>
+                    <span style={{ fontSize: 11, color: '#778', marginLeft: 10, whiteSpace: 'nowrap' }}>
+                      {p.yearStart ?? '?'}–{p.yearEnd ?? '∞'}
+                      {p.polityType ? ` · ${p.polityType}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Wikidata results — not in DB */}
+              {(wdResults.length > 0 || wdLoading) && (
+                <div style={{ flexShrink: 0 }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 600, letterSpacing: '0.06em',
+                    textTransform: 'uppercase', color: '#556', marginBottom: 6,
+                  }}>
+                    From Wikipedia {wdLoading && <span style={{ color: '#445', fontWeight: 400 }}>· searching…</span>}
+                  </div>
+                  <div style={{ border: '1px solid #2a3450', borderRadius: 6, background: '#11172a' }}>
+                    {wdResults.map((r) => (
+                      <div
+                        key={r.id}
+                        style={{
+                          padding: '8px 12px', borderBottom: '1px solid #1e2a3e',
+                          display: 'flex', alignItems: 'baseline', gap: 8,
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 13 }}>{r.label}</span>
+                          {r.description && (
+                            <span style={{ fontSize: 11, color: '#667', marginLeft: 8 }}>
+                              {r.description}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <span style={{ fontSize: 10, color: '#445' }}>{r.id}</span>
+                          <button
+                            onClick={() => handleImport(r)}
+                            disabled={importingQid === r.id}
+                            style={btnStyle('#2a5a3a', importingQid === r.id)}
+                          >
+                            {importingQid === r.id ? 'Importing…' : 'Import'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
 
             {status === 'error' && (

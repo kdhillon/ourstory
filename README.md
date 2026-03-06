@@ -30,7 +30,7 @@ This project is under active development. The core map, data pipeline, and deplo
 - **Zoom filtering** — events filtered by importance (`sitelinks_count`) at low zoom levels
 - **Major events panel** — bottom bar showing significant events in the current time window
 - **Deployment** — frontend + backend on [Railway](https://railway.app), auto-migrations on deploy
-- **Data loaded** — 16,592 events · 4,034 locations · 7,096 polities · coverage: 1600–2025
+- **Data loaded** — 28,588 events · 6,287 locations · 7,096 polities · coverage: c.2300 BCE–2025
 
 ### To Do
 - **Data coverage** — pipeline has only been run for 1770–1820; needs to expand across all of history

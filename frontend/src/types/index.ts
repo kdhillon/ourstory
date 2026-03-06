@@ -1,6 +1,6 @@
 export type LocationLevel = 'point' | 'city' | 'country' | 'region';
 
-export type PolityType = 'empire' | 'kingdom' | 'principality' | 'republic' | 'confederation' | 'sultanate' | 'papacy' | 'people' | 'other';
+export type PolityType = 'empire' | 'kingdom' | 'principality' | 'republic' | 'confederation' | 'sultanate' | 'papacy' | 'colony' | 'people' | 'other';
 
 export type Category =
   | 'battle'
@@ -13,7 +13,6 @@ export type Category =
   | 'culture'
   | 'city'
   | 'region'
-  | 'country'
   // Polity subtypes
   | 'empire'
   | 'kingdom'
@@ -22,12 +21,13 @@ export type Category =
   | 'confederation'
   | 'sultanate'
   | 'papacy'
+  | 'colony'
   | 'people'
   | 'other'
   | 'unknown';
 
 export interface FeatureProperties {
-  featureType: 'event' | 'city' | 'region' | 'country' | 'polity';
+  featureType: 'event' | 'city' | 'region' | 'polity';
   /** UUID primary key from the DB */
   id: string;
   /** Wikipedia article title slug, e.g. 'Battle_of_Thermopylae' — stable public identifier */
@@ -49,6 +49,8 @@ export interface FeatureProperties {
   locationName: string;
   /** Slug of the linked location entity (city/region), if any. Used for cross-entity navigation. */
   locationSlug: string | null;
+  /** Wikidata QID of the event's location entity. Used to cross-link to a matching polity. */
+  locationWikidataQid?: string | null;
   /** Only present on city features. 'major' cities are always shown; 'minor' only above zoom 7. */
   cityImportance?: 'major' | 'minor';
   categories: Category[];

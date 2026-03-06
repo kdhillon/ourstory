@@ -11,7 +11,6 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   culture:       '#2E7D32',  // green
   city:          '#4285F4',  // blue
   region:        '#00897B',  // dark teal
-  country:       '#546E7A',  // blue-grey
   // Polity subtypes
   empire:        '#8B0000',  // deep crimson
   kingdom:       '#1A237E',  // midnight blue
@@ -20,6 +19,7 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   confederation: '#4A148C',  // deep purple
   sultanate:     '#BF360C',  // burnt sienna
   papacy:        '#F9A825',  // gold
+  colony:        '#5D4037',  // dark brown (colonial / dependent territories)
   people:        '#78909C',  // slate (ethnic groups, tribes, indigenous peoples)
   other:         '#607D8B',  // blue-grey (unclassified polities)
   unknown:       '#9E9E9E',  // grey
@@ -36,7 +36,6 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   culture:       'Culture',
   city:          'City',
   region:        'Region',
-  country:       'Country',
   // Polity subtypes
   empire:        'Empire',
   kingdom:       'Kingdom',
@@ -45,6 +44,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   confederation: 'Confederation',
   sultanate:     'Sultanate',
   papacy:        'Papacy',
+  colony:        'Colony',
   people:        'Peoples',
   other:         'Other',
   unknown:       'Unknown',
@@ -64,7 +64,6 @@ export const EVENT_CATEGORIES: Category[] = [
 export const LOCATION_CATEGORIES: Category[] = [
   'city',
   'region',
-  'country',
 ];
 
 export const POLITY_CATEGORIES: Category[] = [
@@ -75,6 +74,7 @@ export const POLITY_CATEGORIES: Category[] = [
   'confederation',
   'sultanate',
   'papacy',
+  'colony',
   'people',
   'other',
 ];

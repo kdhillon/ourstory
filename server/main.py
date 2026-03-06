@@ -10,7 +10,10 @@ Endpoints:
     PATCH /api/polities/{polity_id}     — save a user correction to a polity record
 """
 
+import json
 import os
+import re
+import urllib.request
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -61,6 +64,8 @@ _POLITY_COLORS = {
     "confederation": "#4A148C",
     "sultanate":     "#BF360C",
     "papacy":        "#F9A825",
+    "colony":        "#5D4037",
+    "people":        "#78909C",  # slate — tribes, nations, indigenous peoples
     "other":         "#607D8B",
 }
 
@@ -73,7 +78,7 @@ def build_event_feature(cur, event_id: str) -> dict | None:
           e.year_start, e.month_start, e.day_start,
           e.year_end, e.month_end, e.day_end,
           e.date_is_fuzzy, e.date_range_min, e.date_range_max,
-          e.location_level,
+          e.location_level, e.location_wikidata_qid,
           CASE WHEN e.location_level = 'point' THEN e.lng ELSE l.lng END AS lng,
           CASE WHEN e.location_level = 'point' THEN e.lat ELSE l.lat END AS lat,
           e.location_name,
@@ -133,6 +138,7 @@ def build_event_feature(cur, event_id: str) -> dict | None:
             "locationLevel": row["location_level"],
             "locationName": row["location_name"] or "",
             "locationSlug": row["location_slug"],
+            "locationWikidataQid": row["location_wikidata_qid"],
             "categories": row["categories"] or [],
             "primaryCategory": (row["categories"] or ["unknown"])[0],
             "wikidataClasses": row["p31_qids"] or [],
@@ -158,7 +164,7 @@ def build_event_features_bulk(cur, year_min: int, year_max: int) -> list[dict]:
           e.year_start, e.month_start, e.day_start,
           e.year_end, e.month_end, e.day_end,
           e.date_is_fuzzy, e.date_range_min, e.date_range_max,
-          e.location_level,
+          e.location_level, e.location_wikidata_qid,
           CASE WHEN e.location_level = 'point' THEN e.lng ELSE l.lng END AS lng,
           CASE WHEN e.location_level = 'point' THEN e.lat ELSE l.lat END AS lat,
           e.location_name,
@@ -227,6 +233,7 @@ def build_event_features_bulk(cur, year_min: int, year_max: int) -> list[dict]:
                 "locationLevel": row["location_level"],
                 "locationName": row["location_name"] or "",
                 "locationSlug": row["location_slug"],
+                "locationWikidataQid": row["location_wikidata_qid"],
                 "categories": row["categories"] or [],
                 "primaryCategory": (row["categories"] or ["unknown"])[0],
                 "wikidataClasses": row["p31_qids"] or [],
@@ -388,6 +395,307 @@ async def patch_polity(polity_id: str, request: Request):
                 "pipelineRun": row["pipeline_run"],
             },
         }
+    finally:
+        conn.close()
+
+
+# ── Wikidata polity import helpers ─────────────────────────────────────────────
+
+def _wd_fetch(qid: str) -> dict:
+    """Fetch a Wikidata entity via Special:EntityData."""
+    url = f"https://www.wikidata.org/wiki/Special:EntityData/{qid}.json"
+    req = urllib.request.Request(url, headers={"User-Agent": "OpenHistory/1.0 (https://openhistory.app)"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())["entities"][qid]
+
+
+def _wd_str_value(claims: dict, prop: str) -> str | None:
+    """Return first string value for a Wikidata claim, or None."""
+    for s in claims.get(prop, []):
+        dv = s.get("mainsnak", {}).get("datavalue", {})
+        if dv.get("type") == "string":
+            return dv["value"]
+    return None
+
+
+def _wd_item_id(claims: dict, prop: str) -> str | None:
+    """Return first item QID for a Wikidata claim, or None."""
+    for s in claims.get(prop, []):
+        dv = s.get("mainsnak", {}).get("datavalue", {})
+        if dv.get("type") == "wikibase-entityid":
+            return dv["value"]["id"]
+    return None
+
+
+def _wd_coords(claims: dict) -> tuple[float, float] | None:
+    """Return (lat, lng) from P625, or None."""
+    for s in claims.get("P625", []):
+        dv = s.get("mainsnak", {}).get("datavalue", {})
+        if dv.get("type") == "globecoordinate":
+            v = dv["value"]
+            return float(v["latitude"]), float(v["longitude"])
+    return None
+
+
+def _wd_year(claims: dict, prop: str) -> int | None:
+    """Return year integer from a Wikidata time claim."""
+    for s in claims.get(prop, []):
+        dv = s.get("mainsnak", {}).get("datavalue", {})
+        if dv.get("type") == "time":
+            t = dv["value"]["time"]  # e.g. "+1492-00-00T00:00:00Z"
+            m = re.match(r"([+-])(\d+)-", t)
+            if m:
+                y = int(m.group(2))
+                return -y if m.group(1) == "-" else y
+    return None
+
+
+def _classify_polity_type_simple(name: str, p31_qids: list[str]) -> str:
+    """Lightweight polity type classifier for manually imported entities."""
+    # P31 QID-based checks for common types
+    _TYPE_QIDS: dict[str, str] = {
+        "Q3024240": "other",     # historical country
+        "Q6256":    "other",     # country
+        "Q7275":    "republic",  # state
+        "Q7270":    "republic",  # republic
+        "Q28171280": "republic", # sovereign state
+        "Q43702":   "confederation",  # confederation
+        "Q208511":  "empire",    # empire
+        "Q1250464": "empire",    # empire (alt)
+        "Q160016":  "sultanate", # sultanate
+        "Q170018":  "sultanate", # caliphate
+        "Q202216":  "kingdom",   # kingdom
+        "Q170089":  "principality",
+        "Q1336137": "colony",    # colony
+        "Q23526":   "people",    # tribal nation / First Nation
+        "Q41710":   "people",    # ethnic group
+        "Q484652":  "people",    # indigenous peoples
+        "Q33506":   "people",    # tribe
+        "Q839954":  "people",    # indigenous people
+    }
+    for qid in p31_qids:
+        if qid in _TYPE_QIDS:
+            return _TYPE_QIDS[qid]
+    # Name-based fallback
+    n = name.lower()
+    if any(w in n for w in ("empire",)): return "empire"
+    if any(w in n for w in ("kingdom",)): return "kingdom"
+    if any(w in n for w in ("republic",)): return "republic"
+    if any(w in n for w in ("confederation", "confederacy")): return "confederation"
+    if any(w in n for w in ("sultanate",)): return "sultanate"
+    if any(w in n for w in ("principality", "duchy", "margraviate")): return "principality"
+    if any(w in n for w in ("colony", "colonial")): return "colony"
+    if any(w in n for w in ("tribe", "nation", "band", "people", "peoples",
+                             "first nation", "indigenous", "confederacy")): return "people"
+    # Default for manually imported entities: people (primary use case)
+    return "people"
+
+
+def _wp_summary(title: str) -> tuple[str, str]:
+    """Fetch Wikipedia summary and URL. Returns (summary, url)."""
+    try:
+        encoded = urllib.parse.quote(title.replace(" ", "_"))
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}"
+        req = urllib.request.Request(url, headers={"User-Agent": "OpenHistory/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read())
+            return data.get("extract", ""), data.get("content_urls", {}).get("desktop", {}).get("page", "")
+    except Exception:
+        return "", ""
+
+
+def _build_polity_feature(row: dict) -> dict:
+    """Format a polity DB row as a GeoJSON Feature (same shape as seed.geojson)."""
+    lng, lat = row["lng"], row["lat"]
+    return {
+        "type": "Feature",
+        "geometry": (
+            {"type": "Point", "coordinates": [float(lng), float(lat)]}
+            if lng is not None and lat is not None else None
+        ),
+        "properties": {
+            "featureType": "polity",
+            "id": str(row["id"]),
+            "wikidataQid": row["wikidata_qid"],
+            "slug": row["slug"],
+            "title": row["name"],
+            "wikipediaTitle": row["wikipedia_title"],
+            "wikipediaSummary": row["wikipedia_summary"] or "",
+            "wikipediaUrl": row["wikipedia_url"],
+            "yearStart": row["year_start"],
+            "yearEnd": row["year_end"],
+            "monthStart": None, "dayStart": None, "monthEnd": None, "dayEnd": None,
+            "dateIsFuzzy": row["date_is_fuzzy"],
+            "dateRangeMin": None, "dateRangeMax": None,
+            "polityType": row["polity_type"],
+            "capitalName": row["capital_name"],
+            "capitalWikidataQid": row["capital_wikidata_qid"],
+            "precededByQid": row["preceded_by_qid"],
+            "succeededByQid": row["succeeded_by_qid"],
+            "sovereignName": None, "sovereignSlug": None, "sovereignQid": None,
+            "locationName": "",
+            "locationSlug": None,
+            "categories": [row["polity_type"]],
+            "primaryCategory": row["polity_type"],
+            "wikidataClasses": row["p31_qids"] or [],
+            "hasTerritory": False,
+            "sitelinksCount": row.get("sitelinks_count"),
+            "yearDisplay": display_year(row["year_start"]) if row["year_start"] is not None else "Unknown",
+            "dataVersion": row.get("data_version"),
+            "pipelineRun": row.get("pipeline_run"),
+        },
+    }
+
+
+import urllib.parse
+
+
+@app.post("/api/polities/import-from-wikidata", status_code=201)
+async def import_polity_from_wikidata(request: Request):
+    """
+    Fetch a Wikidata entity by QID and import it as a polity.
+
+    Body: { "qid": "Q193268" }
+
+    Returns the new (or existing) polity as a GeoJSON Feature.
+    If the QID already exists in the DB, returns the existing record (200).
+    """
+    body = await request.json()
+    qid: str = (body.get("qid") or "").strip().upper()
+    if not qid or not re.match(r"^Q\d+$", qid):
+        raise HTTPException(400, "Invalid or missing QID.")
+
+    # 1. Check if already in DB
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, wikidata_qid, slug, name, wikipedia_title, wikipedia_summary, wikipedia_url,
+                   year_start, year_end, date_is_fuzzy, polity_type,
+                   capital_name, capital_wikidata_qid, lng, lat,
+                   preceded_by_qid, succeeded_by_qid, p31_qids,
+                   sitelinks_count, data_version, pipeline_run
+            FROM polities WHERE wikidata_qid = %s
+        """, (qid,))
+        existing = cur.fetchone()
+        if existing:
+            return _build_polity_feature(dict(existing))
+    finally:
+        conn.close()
+
+    # 2. Fetch from Wikidata
+    try:
+        entity = _wd_fetch(qid)
+    except Exception as e:
+        raise HTTPException(502, f"Wikidata fetch failed: {e}")
+
+    claims = entity.get("claims", {})
+    labels = entity.get("labels", {})
+    sitelinks = entity.get("sitelinks", {})
+
+    name = (labels.get("en") or labels.get(next(iter(labels), ""), {})).get("value") or qid
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    wp_title = sitelinks.get("enwiki", {}).get("title")
+
+    year_start = _wd_year(claims, "P571") or _wd_year(claims, "P580")
+    year_end   = _wd_year(claims, "P576") or _wd_year(claims, "P582")
+
+    p31_qids = [_wd_item_id({"P31": [s]}, "P31") for s in claims.get("P31", [])]
+    p31_qids = [q for q in p31_qids if q]
+
+    polity_type = _classify_polity_type_simple(name, p31_qids)
+
+    # Coordinates: try P625 direct, then capital P36 → P625
+    coords = _wd_coords(claims)
+    lat, lng, capital_name, capital_qid = None, None, None, None
+
+    capital_qid_raw = _wd_item_id(claims, "P36")
+    if capital_qid_raw:
+        capital_qid = capital_qid_raw
+        try:
+            cap_entity = _wd_fetch(capital_qid)
+            cap_labels = cap_entity.get("labels", {})
+            capital_name = (cap_labels.get("en") or cap_labels.get(next(iter(cap_labels), ""), {})).get("value")
+            cap_coords = _wd_coords(cap_entity.get("claims", {}))
+            if cap_coords:
+                lat, lng = cap_coords
+        except Exception:
+            pass
+
+    if lat is None and coords:
+        lat, lng = coords
+
+    preceded_by = _wd_item_id(claims, "P1365")
+    succeeded_by = _wd_item_id(claims, "P1366")
+
+    # Wikipedia summary
+    wp_summary, wp_url = ("", "")
+    if wp_title:
+        wp_summary, wp_url = _wp_summary(wp_title)
+
+    # 3. Insert into DB
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            INSERT INTO polities (
+                wikidata_qid, slug, name, wikipedia_title, wikipedia_summary, wikipedia_url,
+                year_start, year_end, date_is_fuzzy, polity_type,
+                capital_name, capital_wikidata_qid, lng, lat,
+                preceded_by_qid, succeeded_by_qid, p31_qids,
+                data_version, pipeline_run
+            ) VALUES (
+                %(wikidata_qid)s, %(slug)s, %(name)s, %(wikipedia_title)s,
+                %(wikipedia_summary)s, %(wikipedia_url)s,
+                %(year_start)s, %(year_end)s, FALSE, %(polity_type)s,
+                %(capital_name)s, %(capital_wikidata_qid)s, %(lng)s, %(lat)s,
+                %(preceded_by_qid)s, %(succeeded_by_qid)s, %(p31_qids)s,
+                2, 'manual-import'
+            )
+            ON CONFLICT (wikidata_qid) DO UPDATE SET pipeline_run = polities.pipeline_run
+            RETURNING id, wikidata_qid, slug, name, wikipedia_title, wikipedia_summary, wikipedia_url,
+                      year_start, year_end, date_is_fuzzy, polity_type,
+                      capital_name, capital_wikidata_qid, lng, lat,
+                      preceded_by_qid, succeeded_by_qid, p31_qids,
+                      sitelinks_count, data_version, pipeline_run
+        """, {
+            "wikidata_qid": qid, "slug": slug, "name": name,
+            "wikipedia_title": wp_title, "wikipedia_summary": wp_summary, "wikipedia_url": wp_url,
+            "year_start": year_start, "year_end": year_end, "polity_type": polity_type,
+            "capital_name": capital_name, "capital_wikidata_qid": capital_qid,
+            "lng": lng, "lat": lat,
+            "preceded_by_qid": preceded_by, "succeeded_by_qid": succeeded_by,
+            "p31_qids": p31_qids,
+        })
+        conn.commit()
+        row = dict(cur.fetchone())
+        return _build_polity_feature(row)
+    finally:
+        conn.close()
+
+
+@app.get("/api/polities/manual")
+def get_manual_polities():
+    """
+    Return all manually imported polities (pipeline_run='manual-import') as GeoJSON features.
+
+    The frontend fetches this on startup and merges over the static seed.geojson,
+    so imported polities appear on the map immediately without a full rebuild.
+    """
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, wikidata_qid, slug, name, wikipedia_title, wikipedia_summary, wikipedia_url,
+                   year_start, year_end, date_is_fuzzy, polity_type,
+                   capital_name, capital_wikidata_qid, lng, lat,
+                   preceded_by_qid, succeeded_by_qid, p31_qids,
+                   sitelinks_count, data_version, pipeline_run
+            FROM polities WHERE pipeline_run = 'manual-import'
+            ORDER BY name
+        """)
+        features = [_build_polity_feature(dict(r)) for r in cur.fetchall()]
+        return {"type": "FeatureCollection", "features": features}
     finally:
         conn.close()
 

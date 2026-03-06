@@ -28,7 +28,7 @@ export interface DataOverlayProps {
 const DEFINITIONS: Record<string, string> = {
   events: 'Battles, elections, treaties, disasters, discoveries, and more — each with a date and location.',
   locations: 'Cities, regions, and countries referenced by events.',
-  polities: 'Kingdoms, empires, republics, colonies, and other political entities with founding and dissolution dates.',
+  polities: 'Kingdoms, empires, republics, tribes, nations, indigenous peoples, colonies, and other political entities with founding and dissolution dates.',
   'territory snapshot': 'Shaded boundary polygons from historical map snapshots, linked to polities.',
 };
 

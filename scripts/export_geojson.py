@@ -36,6 +36,7 @@ _POLITY_COLORS = {
     "confederation": "#4A148C",
     "sultanate":     "#BF360C",
     "papacy":        "#F9A825",
+    "colony":        "#5D4037",
     "other":         "#607D8B",
 }
 

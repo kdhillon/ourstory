@@ -70,6 +70,8 @@ POLITY_SPARQL_CATEGORIES: list[tuple[str, str]] = [
     ("country",             "Q6256"),      # country (catches remaining sovereign states)
     # Colonial / dependent territories
     ("colony",              "Q133156"),    # colony (Dutch Ceylon, British India, etc.)
+    ("protectorate",        "Q164142"),    # protectorate (Tunisia, Morocco, etc.)
+    ("captaincy general",   "Q5036886"),   # captaincy general (Guatemala, Cuba, etc.)
     ("viceroyalty",         "Q12356456"),  # viceroyalty (New Granada, New Spain, Peru, etc.)
     # Other European political forms common in 1600–1900
     ("duchy",               "Q159627"),    # duchy (German states, Italian states)
@@ -82,10 +84,15 @@ POLITY_SPARQL_CATEGORIES: list[tuple[str, str]] = [
     ("khanate",             "Q200976"),    # khanate (Crimea, Central Asia, etc.)
     ("regency",             "Q2560551"),   # regency (Algiers, Tunis, Tripoli)
     # Peoples, tribes, and indigenous groups
-    ("ethnic group",        "Q41710"),     # ethnic group (Aboriginal Australian peoples, etc.)
+    ("ethnic group",        "Q41710"),     # ethnic group (broad — catches most indigenous peoples)
+    ("indigenous people",   "Q131596"),    # indigenous people (distinct class from ethnic group)
     ("horde",               "Q1345055"),   # horde (Mongol, Nogai, etc.)
     ("tribe",               "Q133311"),    # tribe (human social group)
     ("chiefdom",            "Q1642488"),   # chiefdom
+    ("band society",        "Q271445"),    # band society (small hunter-gatherer groups)
+    ("indigenous nation",   "Q4358176"),   # indigenous nation (North America, Australia, etc.)
+    ("first nation",        "Q484736"),    # First Nations (Canada)
+    ("native american tribe","Q1137806"),  # Native American tribe (US-specific class)
 ]
 
 # Reasonable limit per category — polities are far fewer than events
@@ -421,8 +428,27 @@ def build_polity_p31_dynamic_map(
         "Q131401":    "sultanate",     # caliphate
         # Papacy
         "Q12799209":  "papacy",
+        # Peoples / indigenous groups
+        "Q41710":     "people",    # ethnic group
+        "Q131596":    "people",    # indigenous people
+        "Q1345055":   "people",    # horde
+        "Q133311":    "people",    # tribe
+        "Q1642488":   "people",    # chiefdom
+        "Q179062":    "people",    # chiefdom (alt)
+        "Q215628":    "people",    # people (ethnic)
+        "Q271445":    "people",    # band society
+        "Q4358176":   "people",    # indigenous nation
+        "Q484736":    "people",    # First Nation
+        "Q1137806":   "people",    # Native American tribe
+        # Colony / dependency
+        "Q133156":    "colony",
+        "Q164142":    "colony",    # protectorate
+        "Q12356456":  "colony",    # viceroyalty
+        "Q5036886":   "colony",    # captaincy general
+        "Q1351282":   "colony",    # crown colony
+        "Q185441":    "colony",    # dependency
     }
-    PRIORITY = {"papacy": 7, "sultanate": 6, "confederation": 5, "republic": 4, "empire": 3, "kingdom": 2, "principality": 1}
+    PRIORITY = {"papacy": 7, "sultanate": 6, "confederation": 5, "republic": 4, "empire": 3, "kingdom": 2, "principality": 1, "colony": 1, "people": 1}
 
     def _classify_direct(qid: str) -> Optional[str]:
         return POLITY_TYPE_ROOTS.get(qid, "UNKNOWN")

@@ -103,10 +103,9 @@ interface Props {
 }
 
 
-// Circles: regions, countries, and explicitly major cities (no events)
+// Circles: regions and explicitly major cities (no events)
 const LOCATION_MAJOR_FILTER = ['any',
   ['==', ['get', 'featureType'], 'region'],
-  ['==', ['get', 'featureType'], 'country'],
   ['==', ['get', 'cityImportance'], 'major'],
 ] as maplibregl.FilterSpecification;
 
@@ -123,7 +122,6 @@ const MAJOR_FILTER = ['any',
     ['<=', ['coalesce', ['get', '_minZoom'], 4], ['zoom']],
   ],
   ['==', ['get', 'featureType'], 'region'],
-  ['==', ['get', 'featureType'], 'country'],
   ['==', ['get', 'cityImportance'], 'major'],
 ] as maplibregl.FilterSpecification;
 
@@ -207,7 +205,6 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         'circle-color': ['coalesce', ['get', '_color'], '#9E9E9E'],
         'circle-radius': ['case',
           ['has', '_radius'],                                 ['get', '_radius'],
-          ['==', ['get', 'featureType'], 'country'],          15,
           ['==', ['get', 'featureType'], 'region'],           11,
           ['==', ['get', 'cityImportance'], 'major'],         9,
           ['==', ['get', 'featureType'], 'city'],             6,
@@ -215,7 +212,6 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         ],
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': ['case',
-          ['==', ['get', 'featureType'], 'country'], 4,
           ['==', ['get', 'featureType'], 'region'],  3,
           2,
         ],
@@ -500,7 +496,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
 
       const p = f.properties as FeatureProperties;
       const isPolity   = p.featureType === 'polity';
-      const isLocation = p.featureType === 'city' || p.featureType === 'region' || p.featureType === 'country';
+      const isLocation = p.featureType === 'city' || p.featureType === 'region';
 
       // Polities use their own independent filter set
       if (isPolity) {
@@ -531,9 +527,10 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
           if (threshold !== undefined && currentYear < threshold) return [];
         }
 
-        // Zoom-gate by sitelinks importance (same thresholds as events)
+        // Zoom-gate polities more aggressively than events to reduce clutter.
+        // Each tier is +2 zoom levels above the equivalent event threshold.
         const sl = p.sitelinksCount ?? null;
-        const _minZoom = sl === null ? 2 : sl >= 25 ? 1 : sl >= 10 ? 2 : sl >= 3 ? 4 : 6;
+        const _minZoom = sl === null ? 4 : sl >= 25 ? 3 : sl >= 10 ? 4 : sl >= 3 ? 6 : 8;
 
         return [{ ...f, properties: { ...f.properties, _opacity: 1.0, _labelOpacity: 1.0, _color, _minZoom } }];
       }

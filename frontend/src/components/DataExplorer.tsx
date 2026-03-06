@@ -275,7 +275,7 @@ function TableRow({
 }) {
   const color = getCategoryColor(row.primaryCategory);
   const prefix = row.dateIsFuzzy ? '~' : '';
-  const isLocationFeature = row.featureType === 'city' || row.featureType === 'region' || row.featureType === 'country';
+  const isLocationFeature = row.featureType === 'city' || row.featureType === 'region';
   const canEdit = row.featureType === 'event' && !!row.wikipediaTitle;
   const yearLabel = row.yearStart === null
     ? '—'
