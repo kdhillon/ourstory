@@ -139,10 +139,15 @@ export default function App() {
         if (localUnlinks.has(key)) {
           return { ...f, properties: { ...f.properties, polityId: null, polityName: null } };
         }
-        if (p.polityId) return f;
+        // localMappings must be checked before the p.polityId early-return so that
+        // territories already linked to a hidden/suppressed polity (e.g. modern Spain)
+        // can be re-mapped without the existing polityId blocking the update.
         const mapping = localMappings.get(key);
-        if (!mapping) return f;
-        return { ...f, properties: { ...f.properties, polityId: mapping.polityId, polityName: mapping.polityName } };
+        if (mapping) {
+          return { ...f, properties: { ...f.properties, polityId: mapping.polityId, polityName: mapping.polityName } };
+        }
+        if (p.polityId) return f;
+        return f;
       }),
     } as GeoJSON.FeatureCollection;
   }, [localMappings, localUnlinks, territoriesFeatureCollection]);
