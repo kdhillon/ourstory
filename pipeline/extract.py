@@ -946,6 +946,16 @@ _POLITY_PAPACY: set[str] = {
     "Q12799209",  # pontificate
 }
 
+_POLITY_PEOPLE: set[str] = {
+    "Q41710",    # ethnic group
+    "Q1345055",  # horde
+    "Q133311",   # tribe (human social group)
+    "Q1642488",  # chiefdom
+    "Q179062",   # chiefdom (duplicate resolution)
+    "Q131596",   # indigenous people
+    "Q215628",   # people (ethnic)
+}
+
 # P31 values that unambiguously indicate a non-polity entity.
 # If ANY of these QIDs is present in p31_qids AND no legitimate polity P31 is
 # present, the entity should be excluded from the polities table.
@@ -981,7 +991,7 @@ _POLITY_EXCLUDE_P31: set[str] = {
 
 _ALL_POLITY_P31: set[str] = (
     _POLITY_EMPIRE | _POLITY_KINGDOM | _POLITY_PRINCIPALITY | _POLITY_REPUBLIC
-    | _POLITY_CONFEDERATION | _POLITY_SULTANATE | _POLITY_PAPACY
+    | _POLITY_CONFEDERATION | _POLITY_SULTANATE | _POLITY_PAPACY | _POLITY_PEOPLE
 )
 
 
@@ -1041,6 +1051,8 @@ def classify_polity_type(
         if qid in _POLITY_KINGDOM:       return "kingdom"
     for qid in p31_qids:
         if qid in _POLITY_PRINCIPALITY:  return "principality"
+    for qid in p31_qids:
+        if qid in _POLITY_PEOPLE:        return "people"
 
     # Tier 2 — transitive BFS results
     if extra_map:

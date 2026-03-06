@@ -1,6 +1,6 @@
 export type LocationLevel = 'point' | 'city' | 'country' | 'region';
 
-export type PolityType = 'empire' | 'kingdom' | 'principality' | 'republic' | 'confederation' | 'sultanate' | 'papacy' | 'other';
+export type PolityType = 'empire' | 'kingdom' | 'principality' | 'republic' | 'confederation' | 'sultanate' | 'papacy' | 'people' | 'other';
 
 export type Category =
   | 'battle'
@@ -22,6 +22,7 @@ export type Category =
   | 'confederation'
   | 'sultanate'
   | 'papacy'
+  | 'people'
   | 'other'
   | 'unknown';
 

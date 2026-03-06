@@ -20,6 +20,7 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   confederation: '#4A148C',  // deep purple
   sultanate:     '#BF360C',  // burnt sienna
   papacy:        '#F9A825',  // gold
+  people:        '#78909C',  // slate (ethnic groups, tribes, indigenous peoples)
   other:         '#607D8B',  // blue-grey (unclassified polities)
   unknown:       '#9E9E9E',  // grey
 };
@@ -44,6 +45,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   confederation: 'Confederation',
   sultanate:     'Sultanate',
   papacy:        'Papacy',
+  people:        'Peoples',
   other:         'Other',
   unknown:       'Unknown',
 };
@@ -73,6 +75,7 @@ export const POLITY_CATEGORIES: Category[] = [
   'confederation',
   'sultanate',
   'papacy',
+  'people',
   'other',
 ];
 

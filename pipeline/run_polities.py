@@ -81,10 +81,15 @@ POLITY_SPARQL_CATEGORIES: list[tuple[str, str]] = [
     ("eyalet",              "Q44565"),     # Ottoman eyalet (earlier provincial type)
     ("khanate",             "Q200976"),    # khanate (Crimea, Central Asia, etc.)
     ("regency",             "Q2560551"),   # regency (Algiers, Tunis, Tripoli)
+    # Peoples, tribes, and indigenous groups
+    ("ethnic group",        "Q41710"),     # ethnic group (Aboriginal Australian peoples, etc.)
+    ("horde",               "Q1345055"),   # horde (Mongol, Nogai, etc.)
+    ("tribe",               "Q133311"),    # tribe (human social group)
+    ("chiefdom",            "Q1642488"),   # chiefdom
 ]
 
 # Reasonable limit per category — polities are far fewer than events
-DEFAULT_LIMIT = 2000
+DEFAULT_LIMIT = 5000
 
 
 # ---------------------------------------------------------------------------
