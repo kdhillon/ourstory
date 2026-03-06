@@ -63,7 +63,7 @@ export function DataExplorer({ geojson, onBackToMap, onNavigateToFeature, wikiAu
       if (from !== null && row.yearStart !== null && row.yearStart < from) return false;
       if (to !== null && row.yearStart !== null && row.yearStart > to) return false;
 
-      if (row.featureType === 'event') {
+      if (row.featureType === 'event' || row.featureType === 'polity') {
         if (!row.categories.some((c) => activeFilters.has(c as Category))) return false;
       } else {
         if (!activeFilters.has(row.featureType as Category)) return false;

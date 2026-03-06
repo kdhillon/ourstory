@@ -2,6 +2,19 @@ interface Props {
   onBack: () => void;
 }
 
+const SNAPSHOT_YEARS = [
+  -100000, -10000, -8000, -5000, -4000, -3000, -2000, -1000, -500, -323,
+  -200, 1, 200, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1279,
+  1300, 1400, 1492, 1500, 1530, 1600, 1650, 1700, 1715, 1783, 1800,
+  1815, 1880, 1900, 1914, 1920, 1930, 1938, 1945, 1960, 1994, 2000, 2010,
+];
+
+function formatYear(y: number): string {
+  if (y < 0) return `${Math.abs(y).toLocaleString()} BCE`;
+  if (y === 0) return '1 CE';
+  return `${y} CE`;
+}
+
 export function AboutPage({ onBack }: Props) {
   return (
     <div style={styles.page}>
@@ -15,25 +28,104 @@ export function AboutPage({ onBack }: Props) {
         <h1 style={styles.h1}>OpenHistory</h1>
         <p style={styles.lead}>
           An open-source interactive atlas of human history. Scroll through time, watch events
-          unfold, and explore civilizations rising and falling — all sourced from Wikipedia and Wikidata.
+          unfold, and explore civilizations rising and falling.
         </p>
 
         <div style={styles.statusBadge}>🚧 Work in progress — data coverage is limited and expanding</div>
 
         <hr style={styles.rule} />
 
-        <h2 style={styles.h2}>Data</h2>
+        <h2 style={styles.h2}>Data Sources</h2>
+
+        <h3 style={styles.h3}>Events, Locations &amp; Polities — Wikipedia / Wikidata</h3>
         <p style={styles.p}>
-          All historical data comes from <a style={styles.a} href="https://www.wikidata.org" target="_blank" rel="noreferrer">Wikidata</a> and{' '}
-          <a style={styles.a} href="https://www.wikipedia.org" target="_blank" rel="noreferrer">Wikipedia</a>, both published under open licenses
-          (CC BY-SA). The pipeline fetches events, locations, and political entities via the Wikidata SPARQL API and
-          Wikipedia REST API, classifies them by category, and stores them in PostgreSQL.
+          The ground truth for all events, locations, and political entities (polities) is{' '}
+          <a style={styles.a} href="https://www.wikipedia.org" target="_blank" rel="noreferrer">Wikipedia</a> and its
+          structured data layer,{' '}
+          <a style={styles.a} href="https://www.wikidata.org" target="_blank" rel="noreferrer">Wikidata</a> (CC BY-SA).
+          Our pipeline queries the Wikidata SPARQL API to fetch:
         </p>
+        <ul style={styles.ul}>
+          <li><strong>Events</strong> — battles, elections, treaties, disasters, discoveries, and more, each with a date and location</li>
+          <li><strong>Locations</strong> — cities, regions, and countries referenced by events</li>
+          <li><strong>Polities</strong> — kingdoms, empires, republics, colonies, viceroyalties, and other political entities, with founding and dissolution dates</li>
+        </ul>
         <p style={styles.p}>
-          Current coverage: <strong>1790–1810</strong>. Other periods are being added progressively.
+          Current event coverage: <strong>1770–1820</strong>. Other periods are being added progressively.
           Data quality varies — dates and locations are occasionally wrong or missing, reflecting
           the state of Wikidata itself.
         </p>
+
+        <h3 style={styles.h3}>Territory Polygons — historical-basemaps</h3>
+        <p style={styles.p}>
+          Territory boundaries (the shaded regions on the map) come from the open-source{' '}
+          <a style={styles.a} href="https://github.com/aourednik/historical-basemaps" target="_blank" rel="noreferrer">historical-basemaps</a>{' '}
+          project by A. Ourednik (GPL-3.0). It provides hand-curated GeoJSON polygon snapshots
+          for major historical territories. Each territory polygon is then linked to a polity in
+          our database, so the shaded region and the polity dot refer to the same entity.
+        </p>
+
+        <h3 style={styles.h3}>Territory Snapshots</h3>
+        <p style={styles.p}>
+          Unlike events and polities — which have precise year-level dates — territory boundaries
+          only exist at fixed snapshot years. Between snapshots, we interpolate by holding the
+          nearest boundary steady. This means territory shapes can be less granular than the
+          event and polity data around them.
+        </p>
+        <p style={styles.p}>
+          The {SNAPSHOT_YEARS.length} available snapshots are:
+        </p>
+        <p style={{ ...styles.p, fontFamily: 'monospace', fontSize: 13, lineHeight: 1.8, color: '#54595d' }}>
+          {SNAPSHOT_YEARS.map(formatYear).join(' · ')}
+        </p>
+
+        <hr style={styles.rule} />
+
+        <h2 style={styles.h2}>Contributing Data</h2>
+
+        <h3 style={styles.h3}>Editing Events, Locations &amp; Polities</h3>
+        <p style={styles.p}>
+          When you correct a date or location for an event, location, or polity, that change is
+          submitted <strong>directly to Wikidata</strong> — it improves the source data for everyone,
+          not just OpenHistory. To make edits you need a free{' '}
+          <a style={styles.a} href="https://www.mediawiki.org/wiki/Special:CreateAccount" target="_blank" rel="noreferrer">Wikipedia / Wikimedia account</a>.
+          Click any event or polity on the map, then use the edit button in the info panel to
+          log in and submit a correction.
+        </p>
+
+        <h3 style={styles.h3}>Mapping Territories to Polities</h3>
+        <p style={styles.p}>
+          Territory polygons and polities are linked by name-matching — but many territories
+          haven't been matched yet and appear in <strong>grey</strong> on the map.
+          You can help by mapping a grey territory to its polity:
+        </p>
+        <ol style={{ ...styles.ul, paddingLeft: 26 }}>
+          <li>Click on a grey territory label on the map</li>
+          <li>A panel will open — type the name of the corresponding polity</li>
+          <li>Select the correct polity from the search results</li>
+        </ol>
+        <p style={styles.p}>
+          No account required. Territory edits are saved to the OpenHistory database and
+          apply immediately. We appreciate any help filling in these mappings — especially
+          for less-covered regions and time periods.
+        </p>
+        <p style={styles.p}>
+          Direct editing of territory polygon boundaries is not yet supported, but is planned
+          for a future release (see below).
+        </p>
+
+        <hr style={styles.rule} />
+
+        <h2 style={styles.h2}>Future Work</h2>
+        <ul style={styles.ul}>
+          <li><strong>Expanded event coverage</strong> — more time periods beyond 1770–1820</li>
+          <li><strong>Territory boundary editing</strong> — a built-in editor to draw and correct polygon boundaries, with the ability to contribute changes back to the{' '}
+            <a style={styles.a} href="https://github.com/aourednik/historical-basemaps" target="_blank" rel="noreferrer">historical-basemaps</a> project as new snapshots</li>
+          <li><strong>More snapshot years</strong> — interpolated boundaries between the existing fixed snapshots</li>
+          <li><strong>Sub-polity territories</strong> — provinces, counties, and other administrative divisions within larger polities</li>
+        </ul>
+
+        <hr style={styles.rule} />
 
         <h2 style={styles.h2}>Open Source</h2>
         <p style={styles.p}>
@@ -54,7 +146,7 @@ export function AboutPage({ onBack }: Props) {
           <li>Map: <a style={styles.a} href="https://maplibre.org" target="_blank" rel="noreferrer">MapLibre GL JS</a> with <a style={styles.a} href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> tiles</li>
           <li>Frontend: React 18, TypeScript, Vite</li>
           <li>Backend: FastAPI (Python), PostgreSQL</li>
-          <li>Data: Wikidata SPARQL + Wikipedia REST API</li>
+          <li>Data: Wikidata SPARQL + Wikipedia REST API + historical-basemaps GeoJSON</li>
           <li>Hosting: <a style={styles.a} href="https://railway.app" target="_blank" rel="noreferrer">Railway</a></li>
         </ul>
 
@@ -66,7 +158,8 @@ export function AboutPage({ onBack }: Props) {
 
         <hr style={styles.rule} />
         <p style={styles.footer}>
-          Data © <a style={styles.a} href="https://www.wikidata.org" target="_blank" rel="noreferrer">Wikidata</a> contributors (CC BY-SA) ·{' '}
+          Event &amp; polity data © <a style={styles.a} href="https://www.wikidata.org" target="_blank" rel="noreferrer">Wikidata</a> contributors (CC BY-SA) ·{' '}
+          Territory polygons © <a style={styles.a} href="https://github.com/aourednik/historical-basemaps" target="_blank" rel="noreferrer">historical-basemaps</a> contributors (GPL-3.0) ·{' '}
           Map © <a style={styles.a} href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> ·{' '}
           Code © 2026 OpenHistory contributors (MIT)
         </p>
@@ -126,7 +219,7 @@ const styles: Record<string, React.CSSProperties> = {
   rule: {
     border: 'none',
     borderTop: '1px solid rgba(0,0,0,0.1)',
-    margin: '24px 0',
+    margin: '28px 0',
   },
   h2: {
     fontSize: 22,
@@ -134,6 +227,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#202122',
     margin: '28px 0 10px',
     letterSpacing: '-0.01em',
+  },
+  h3: {
+    fontSize: 16,
+    fontWeight: 600,
+    color: '#202122',
+    margin: '20px 0 8px',
   },
   p: {
     fontSize: 15,

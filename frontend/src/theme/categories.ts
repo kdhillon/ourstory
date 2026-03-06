@@ -79,6 +79,7 @@ export const POLITY_CATEGORIES: Category[] = [
 export const ALL_CATEGORIES: Category[] = [
   ...EVENT_CATEGORIES,
   ...LOCATION_CATEGORIES,
+  ...POLITY_CATEGORIES,
 ];
 
 export function getCategoryColor(category: Category): string {
