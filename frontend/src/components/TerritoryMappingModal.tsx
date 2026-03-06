@@ -60,12 +60,22 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polygonId, interva
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  // Local polity search
+  // Local polity search — overlapping polities first, non-overlapping greyed out at bottom
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return polities.slice(0, 40);
-    return polities.filter((p) => p.title.toLowerCase().includes(q)).slice(0, 40);
-  }, [query, polities]);
+    const matches = q
+      ? polities.filter((p) => p.title.toLowerCase().includes(q))
+      : polities;
+    const overlaps = matches
+      .filter((p) => computeOverlap(p, intervalStart, intervalEnd).overlaps)
+      .sort((a, b) => {
+        const lifeA = (a.yearStart != null && a.yearEnd != null) ? a.yearEnd - a.yearStart : Infinity;
+        const lifeB = (b.yearStart != null && b.yearEnd != null) ? b.yearEnd - b.yearStart : Infinity;
+        return lifeA - lifeB;
+      });
+    const outside  = matches.filter((p) => !computeOverlap(p, intervalStart, intervalEnd).overlaps);
+    return [...overlaps, ...outside].slice(0, 40);
+  }, [query, polities, intervalStart, intervalEnd]);
 
   const existingQids = useMemo(() => new Set(polities.map((p) => p.wikidataQid).filter(Boolean)), [polities]);
 
@@ -170,15 +180,19 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polygonId, interva
                 {filtered.length === 0 && (
                   <div style={{ padding: '10px 12px', color: '#556', fontSize: 13 }}>No local matches</div>
                 )}
-                {filtered.map((p) => (
+                {filtered.map((p) => {
+                  const ov = computeOverlap(p, intervalStart, intervalEnd);
+                  const dimmed = !ov.overlaps;
+                  return (
                   <div
                     key={p.id}
                     onClick={() => setSelectedId(p.id)}
-                    onDoubleClick={() => { setSelectedId(p.id); if (computeOverlap(p, intervalStart, intervalEnd).overlaps) handleSave(p); }}
+                    onDoubleClick={() => { setSelectedId(p.id); if (ov.overlaps) handleSave(p); }}
                     style={{
                       padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #1e2a3e',
                       background: p.id === selectedId ? '#2a3a5a' : 'transparent',
                       display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      opacity: dimmed ? 0.4 : 1,
                     }}
                   >
                     <a
@@ -195,7 +209,8 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polygonId, interva
                       {p.polityType ? ` · ${p.polityType}` : ''}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* See More / Wikipedia results */}

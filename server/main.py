@@ -1004,9 +1004,6 @@ async def assign_polygon(polygon_id: str, request: Request, _: None = Depends(re
         needs_before = slice_start > interval_start
         needs_after  = slice_end is not None and (interval_end is None or slice_end < interval_end)
 
-        # Delete any child splits previously created from this polygon
-        cur.execute("DELETE FROM snapshot_polygons WHERE source_polygon_id = %s", (polygon_id,))
-
         # Update this polygon: set polity + sub-interval for the slice
         cur.execute("""
             UPDATE snapshot_polygons
@@ -1017,28 +1014,44 @@ async def assign_polygon(polygon_id: str, request: Request, _: None = Depends(re
               slice_end   if needs_after  else None,
               polygon_id))
 
-        # Gap before (unassigned)
+        # Gap before (unassigned) — only insert if no child row already covers this range
         if needs_before:
             before_sub_start = interval_start if interval_start != snap_yr else None
+            before_sub_end   = slice_start - 1
             cur.execute("""
-                INSERT INTO snapshot_polygons
-                    (id, snapshot_year, hb_name, hb_abbrevn, border_precision,
-                     boundary, accuracy, source_polygon_id, sub_year_start, sub_year_end, polity_id)
-                SELECT gen_random_uuid(), snapshot_year, hb_name, hb_abbrevn, border_precision,
-                       boundary, accuracy, %s, %s, %s, NULL
-                FROM snapshot_polygons WHERE id = %s
-            """, (polygon_id, before_sub_start, slice_start - 1, polygon_id))
+                SELECT 1 FROM snapshot_polygons
+                WHERE source_polygon_id = %s AND polity_id IS NULL
+                  AND COALESCE(sub_year_start, %s) <= %s
+                  AND COALESCE(sub_year_end,   %s) >= %s
+            """, (polygon_id, snap_yr, before_sub_end, 9999, interval_start))
+            if not cur.fetchone():
+                cur.execute("""
+                    INSERT INTO snapshot_polygons
+                        (id, snapshot_year, hb_name, hb_abbrevn, border_precision,
+                         boundary, accuracy, source_polygon_id, sub_year_start, sub_year_end, polity_id)
+                    SELECT gen_random_uuid(), snapshot_year, hb_name, hb_abbrevn, border_precision,
+                           boundary, accuracy, %s, %s, %s, NULL
+                    FROM snapshot_polygons WHERE id = %s
+                """, (polygon_id, before_sub_start, before_sub_end, polygon_id))
 
-        # Gap after (unassigned)
+        # Gap after (unassigned) — only insert if no child row already covers this range
         if needs_after:
+            after_sub_start = slice_end + 1
             cur.execute("""
-                INSERT INTO snapshot_polygons
-                    (id, snapshot_year, hb_name, hb_abbrevn, border_precision,
-                     boundary, accuracy, source_polygon_id, sub_year_start, sub_year_end, polity_id)
-                SELECT gen_random_uuid(), snapshot_year, hb_name, hb_abbrevn, border_precision,
-                       boundary, accuracy, %s, %s, %s, NULL
-                FROM snapshot_polygons WHERE id = %s
-            """, (polygon_id, slice_end + 1, interval_end, polygon_id))
+                SELECT 1 FROM snapshot_polygons
+                WHERE source_polygon_id = %s AND polity_id IS NULL
+                  AND COALESCE(sub_year_start, %s) <= %s
+                  AND COALESCE(sub_year_end,   %s) >= %s
+            """, (polygon_id, snap_yr, interval_end, 9999, after_sub_start))
+            if not cur.fetchone():
+                cur.execute("""
+                    INSERT INTO snapshot_polygons
+                        (id, snapshot_year, hb_name, hb_abbrevn, border_precision,
+                         boundary, accuracy, source_polygon_id, sub_year_start, sub_year_end, polity_id)
+                    SELECT gen_random_uuid(), snapshot_year, hb_name, hb_abbrevn, border_precision,
+                           boundary, accuracy, %s, %s, %s, NULL
+                    FROM snapshot_polygons WHERE id = %s
+                """, (polygon_id, after_sub_start, interval_end, polygon_id))
 
         # Remove group-level mapping so per-polygon polity_id values take effect
         # (group mapping would override sp.polity_id via COALESCE, making gap rows appear assigned)

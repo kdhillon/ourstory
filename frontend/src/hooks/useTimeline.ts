@@ -128,8 +128,19 @@ export function displayDate(dateInt: number, stepSize = STEP_YEAR): string {
 // Keep legacy name for callers that haven't been updated yet
 export const displayYear = displayDate;
 
+const LS_DATE_KEY = 'oh-date';
+
 export function useTimeline() {
-  const [currentDateInt, setCurrentDateInt] = useState(() => encodeDate(1700, 1, 1));
+  const [currentDateInt, setCurrentDateInt] = useState(() => {
+    try {
+      const saved = localStorage.getItem(LS_DATE_KEY);
+      if (saved) {
+        const n = parseInt(saved, 10);
+        if (isFinite(n) && n >= DATE_MIN && n <= DATE_MAX) return n;
+      }
+    } catch { /* localStorage unavailable */ }
+    return encodeDate(1700, 1, 1);
+  });
   const [stepSize,        setStepSize]      = useState(STEP_YEAR);
   const [isPlaying,       setIsPlaying]     = useState(false);
   const [playbackSpeed,   setPlaybackSpeed] = useState(1); // steps per second
@@ -141,6 +152,10 @@ export function useTimeline() {
       Math.max(DATE_MIN, Math.min(DATE_MAX, normalizeDateInt(Math.round(dateInt)))),
     );
   }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem(LS_DATE_KEY, String(currentDateInt)); } catch { /* ignore */ }
+  }, [currentDateInt]);
 
   const step = useCallback((direction: 1 | -1) => {
     setCurrentDateInt((cur) => {

@@ -199,11 +199,20 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
     //  on a container that MapLibre already removed its canvas from)
     if (!container || mapRef.current || !container.isConnected) return;
 
+    let savedCenter: [number, number] = [20, 35];
+    let savedZoom = 3;
+    try {
+      const c = localStorage.getItem('oh-map-center');
+      const z = localStorage.getItem('oh-map-zoom');
+      if (c) { const parsed = JSON.parse(c); if (Array.isArray(parsed) && parsed.length === 2) savedCenter = parsed as [number, number]; }
+      if (z) { const n = parseFloat(z); if (isFinite(n)) savedZoom = n; }
+    } catch { /* ignore */ }
+
     const map = new maplibregl.Map({
       container,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: [20, 35],
-      zoom: 3,
+      center: savedCenter,
+      zoom: savedZoom,
     });
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
@@ -402,6 +411,14 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
       });
 
       updateFilterRef.current();
+    });
+
+    map.on('moveend', () => {
+      try {
+        const { lng, lat } = map.getCenter();
+        localStorage.setItem('oh-map-center', JSON.stringify([lng, lat]));
+        localStorage.setItem('oh-map-zoom', String(map.getZoom()));
+      } catch { /* ignore */ }
     });
 
     mapRef.current = map;

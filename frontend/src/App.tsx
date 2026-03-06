@@ -111,7 +111,7 @@ export default function App() {
   // polityId → hideUntilYear for modern nations hidden in historical views
   const [hiddenNations, setHiddenNations] = useState<Map<string, number>>(new Map());
   // Unmatched territory the user clicked — shows the mapping assignment modal
-  const [mappingTarget, setMappingTarget] = useState<{ hbName: string; snapshotYear: number } | null>(null);
+  const [mappingTarget, setMappingTarget] = useState<{ hbName: string; snapshotYear: number; polygonId: string; intervalStart: number; intervalEnd: number | null } | null>(null);
   // QID of the major event chip selected in the bottom bar (null = no filter)
   const [majorEventFilter, setMajorEventFilter] = useState<string | null>(null);
   const [hasMajorEvents, setHasMajorEvents] = useState(false);
@@ -461,7 +461,7 @@ export default function App() {
           hiddenNations={hiddenNations}
           suppressedPolityIds={suppressedPolityIds}
           polityIdsWithTerritory={polityIdsWithTerritory}
-          onUnmatchedTerritoryClick={(hbName, snapshotYear) => setMappingTarget({ hbName, snapshotYear })}
+          onUnmatchedTerritoryClick={(hbName, snapshotYear, polygonId, intervalStart, intervalEnd) => setMappingTarget({ hbName, snapshotYear, polygonId, intervalStart, intervalEnd })}
           onUnlinkPolygon={handleUnlinkPolygon}
           majorEventFilter={majorEventFilter}
         />
@@ -509,6 +509,9 @@ export default function App() {
         <TerritoryMappingModal
           hbName={mappingTarget.hbName}
           snapshotYear={mappingTarget.snapshotYear}
+          polygonId={mappingTarget.polygonId}
+          intervalStart={mappingTarget.intervalStart}
+          intervalEnd={mappingTarget.intervalEnd}
           polities={polityFeatures}
           onClose={() => setMappingTarget(null)}
           onPolityImported={(feature) => {
