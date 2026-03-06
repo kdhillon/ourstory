@@ -1,0 +1,29 @@
+name: Daily DB Backup
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 4am UTC daily
+  workflow_dispatch:        # also manually triggerable from GitHub Actions UI
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install postgres client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Dump Railway DB
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          TIMESTAMP=$(date +%Y-%m-%d)
+          pg_dump "$DATABASE_URL" --no-owner --no-acl -Fc -f "openhistory-backup-${TIMESTAMP}.dump"
+          ls -lh openhistory-backup-${TIMESTAMP}.dump
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: openhistory-backup-*.dump
+          retention-days: 90
+          if-no-files-found: error
