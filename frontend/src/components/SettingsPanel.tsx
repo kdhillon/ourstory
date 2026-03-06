@@ -3,6 +3,7 @@
  */
 
 import { useState, useRef } from 'react';
+import type React from 'react';
 import type { WindowInfo } from '../hooks/useEventSource';
 
 export interface SettingsPanelProps {
@@ -10,10 +11,22 @@ export interface SettingsPanelProps {
   isLoading: boolean;
   error: string | null;
   snapshotYear: number | null;
+  prevSnapshotYear: number | null;
+  nextSnapshotYear: number | null;
   onSeekToSnapshot: (year: number) => void;
 }
 
-export function SettingsPanel({ windowInfo, isLoading, error, snapshotYear, onSeekToSnapshot }: SettingsPanelProps) {
+const arrowBtn: React.CSSProperties = {
+  background: 'none', border: 'none', padding: '0 3px',
+  fontSize: 15, color: '#444', cursor: 'pointer', lineHeight: 1, fontFamily: 'inherit',
+};
+
+const yearBtn: React.CSSProperties = {
+  background: '#f0f0f0', border: 'none', borderRadius: 4,
+  padding: '1px 6px', fontSize: 11, color: '#444', cursor: 'pointer', fontFamily: 'inherit',
+};
+
+export function SettingsPanel({ windowInfo, isLoading, error, snapshotYear, prevSnapshotYear, nextSnapshotYear, onSeekToSnapshot }: SettingsPanelProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -84,24 +97,32 @@ export function SettingsPanel({ windowInfo, isLoading, error, snapshotYear, onSe
           </div>
 
           {snapshotYear !== null && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
               <span style={{ color: '#555', fontSize: 12 }}>Territory snapshot</span>
-              <button
-                onClick={() => onSeekToSnapshot(snapshotYear)}
-                style={{
-                  marginLeft: 'auto',
-                  background: '#f0f0f0',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '1px 6px',
-                  fontSize: 11,
-                  color: '#444',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {snapshotYear}
-              </button>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
+                <button
+                  onClick={() => prevSnapshotYear != null && onSeekToSnapshot(prevSnapshotYear)}
+                  disabled={prevSnapshotYear == null}
+                  title={prevSnapshotYear != null ? `Go to ${prevSnapshotYear}` : undefined}
+                  style={{ ...arrowBtn, opacity: prevSnapshotYear == null ? 0.3 : 1 }}
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={() => onSeekToSnapshot(snapshotYear)}
+                  style={yearBtn}
+                >
+                  {snapshotYear}
+                </button>
+                <button
+                  onClick={() => nextSnapshotYear != null && onSeekToSnapshot(nextSnapshotYear)}
+                  disabled={nextSnapshotYear == null}
+                  title={nextSnapshotYear != null ? `Go to ${nextSnapshotYear}` : undefined}
+                  style={{ ...arrowBtn, opacity: nextSnapshotYear == null ? 0.3 : 1 }}
+                >
+                  ›
+                </button>
+              </div>
             </div>
           )}
 

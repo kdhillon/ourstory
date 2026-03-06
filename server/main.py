@@ -544,6 +544,18 @@ def get_events(year_min: int, year_max: int):
         conn.close()
 
 
+@app.get("/api/territory-snapshots")
+def get_territory_snapshots():
+    """Return all loaded snapshot years in ascending order."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
+        return {"years": [row[0] for row in cur.fetchall()]}
+    finally:
+        conn.close()
+
+
 @app.get("/api/territories")
 def get_territories(year_min: int, year_max: int):
     """

@@ -81,6 +81,7 @@ export default function App() {
   const [hiddenNations, setHiddenNations] = useState<Map<string, number>>(new Map());
   // Unmatched territory the user clicked — shows the mapping assignment modal
   const [mappingTarget, setMappingTarget] = useState<{ hbName: string; snapshotYear: number } | null>(null);
+  const [snapshotYears, setSnapshotYears] = useState<number[]>([]);
   // QID of the major event chip selected in the bottom bar (null = no filter)
   const [majorEventFilter, setMajorEventFilter] = useState<string | null>(null);
   const [hasMajorEvents, setHasMajorEvents] = useState(false);
@@ -179,6 +180,22 @@ export default function App() {
 
   useEffect(() => {
     checkLogin().then((username) => setWikiAuth(username));
+  }, []);
+
+  useEffect(() => {
+    const base = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+    fetch(`${base}/territory-snapshots`)
+      .then((r) => r.json())
+      .then((d: { years: number[] }) => setSnapshotYears(d.years))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const apiBase = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+    fetch(`${apiBase}/territory-snapshots`)
+      .then((r) => r.json())
+      .then((d: { years: number[] }) => setSnapshotYears(d.years))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -378,7 +395,15 @@ export default function App() {
         onTogglePolity={handleTogglePolityCategory}
         onOpenAbout={() => navigate('/about')}
         onOpenData={() => navigate('/data')}
-        settings={{ windowInfo, isLoading: eventsLoading, error: eventsError, snapshotYear: activeSnapshotYear, onSeekToSnapshot: (y) => timeline.seek(encodeDate(y, 1, 1)) }}
+        settings={{
+            windowInfo,
+            isLoading: eventsLoading,
+            error: eventsError,
+            snapshotYear: activeSnapshotYear,
+            prevSnapshotYear: activeSnapshotYear != null ? (snapshotYears[snapshotYears.indexOf(activeSnapshotYear) - 1] ?? null) : null,
+            nextSnapshotYear: activeSnapshotYear != null ? (snapshotYears[snapshotYears.indexOf(activeSnapshotYear) + 1] ?? null) : null,
+            onSeekToSnapshot: (y) => timeline.seek(encodeDate(y, 1, 1)),
+          }}
       />
 
       <div style={{ position: 'absolute', inset: `89px 0 ${64 + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
