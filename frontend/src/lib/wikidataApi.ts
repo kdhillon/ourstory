@@ -62,7 +62,7 @@ export async function loginContinue(logintoken: string, code: string, requestId 
     action: 'clientlogin', format: 'json',
     logincontinue: '1',
     logintoken,
-    [`${requestId}.${fieldName}`]: code,
+    [fieldName]: code,
   });
   const res = await fetch(WD_API, { method: 'POST', body, credentials: 'include' });
   const data = await res.json();
