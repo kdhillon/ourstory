@@ -850,6 +850,13 @@ async def save_territory_mapping(request: Request):
                 confidence   = 'manual',
                 updated_at   = NOW()
         """, (hb_name, snapshot_year, polity_id, wikidata_qid))
+        # Also update snapshot_polygons.polity_id so that the COALESCE in the territories
+        # query picks up this mapping immediately (otherwise sp.polity_id takes precedence
+        # over tnm.polity_id and the old assignment is returned even after remapping).
+        cur.execute(
+            "UPDATE snapshot_polygons SET polity_id = %s WHERE hb_name = %s AND snapshot_year = %s",
+            (polity_id, hb_name, snapshot_year),
+        )
         conn.commit()
         return {"hbName": hb_name, "snapshotYear": snapshot_year, "polityId": polity_id}
     finally:

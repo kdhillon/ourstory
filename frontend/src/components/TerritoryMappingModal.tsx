@@ -18,10 +18,10 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
-  // Wikipedia search state — only triggered on demand via "See More"
+  // Wikipedia search state — open by default
   const [wdResults, setWdResults] = useState<EntityResult[]>([]);
   const [wdLoading, setWdLoading] = useState(false);
-  const [wdOpen, setWdOpen] = useState(false);
+  const [wdOpen, setWdOpen] = useState(true);
   const [importingQid, setImportingQid] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,18 +36,18 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
 
   const existingQids = useMemo(() => new Set(polities.map((p) => p.wikidataQid).filter(Boolean)), [polities]);
 
-  // Reset Wikipedia results when the query changes so "See More" re-searches
-  useEffect(() => { setWdResults([]); setWdOpen(false); }, [query]);
-
-  async function handleSeeMore() {
-    setWdOpen(true);
+  // Auto-search whenever the section is open and the query changes
+  useEffect(() => {
+    if (!wdOpen) return;
+    let cancelled = false;
     setWdLoading(true);
-    try {
-      const results = await searchEntities(query.trim() || hbName);
-      setWdResults(results.filter((r) => !existingQids.has(r.id)));
-    } catch { setWdResults([]); }
-    finally { setWdLoading(false); }
-  }
+    setWdResults([]);
+    searchEntities(query.trim() || hbName)
+      .then((r) => { if (!cancelled) setWdResults(r.filter((x) => !existingQids.has(x.id))); })
+      .catch(() => { if (!cancelled) setWdResults([]); })
+      .finally(() => { if (!cancelled) setWdLoading(false); });
+    return () => { cancelled = true; };
+  }, [query, wdOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = polities.find((p) => p.id === selectedId) ?? null;
 
@@ -86,10 +86,13 @@ export function TerritoryMappingModal({ hbName, snapshotYear, polities, onClose,
 
   const card: React.CSSProperties = {
     background: '#1e2433', color: '#e8eaf0', borderRadius: 10,
-    width: 440, maxWidth: '95vw', padding: '20px 22px 18px',
+    width: 480, maxWidth: '95vw', padding: '20px 22px 18px',
     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
     display: 'flex', flexDirection: 'column', gap: 14,
-    maxHeight: '85vh', overflow: 'hidden',
+    ...(status === 'saved'
+      ? { height: 'auto' }
+      : { height: 'calc(100vh - 120px)', maxHeight: 780 }),
+    overflow: 'hidden',
   };
 
   return (

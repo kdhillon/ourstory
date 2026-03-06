@@ -86,6 +86,7 @@ def export(conn: "psycopg2.connection | None" = None) -> int:
         FROM polities
         WHERE lng IS NOT NULL AND lat IS NOT NULL
            OR id IN (SELECT DISTINCT polity_id FROM snapshot_polygons WHERE polity_id IS NOT NULL)
+           OR polity_type = 'people'
         ORDER BY year_start NULLS LAST
     """)
     polities = cur.fetchall()
