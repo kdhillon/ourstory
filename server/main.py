@@ -646,6 +646,10 @@ def get_territories(year_min: int, year_max: int):
                 },
             })
 
+        # All loaded snapshot years — returned to the frontend for prev/next navigation.
+        # To add a new snapshot: run scripts/import-territories.py --snapshot <year>
+        # then scripts/expand-territory-polities.py --snapshot <year>.
+        # This query picks them up automatically; no code change needed.
         cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
         all_snapshot_years = [row["snapshot_year"] for row in cur.fetchall()]
 
