@@ -1241,8 +1241,13 @@ async def wikidata_proxy(request: Request):
     import concurrent.futures
     loop = __import__("asyncio").get_event_loop()
     def _fetch():
+        if wd_req.data:
+            body_str = wd_req.data.decode("utf-8", errors="replace")
+            print(f"[wd-proxy] POST body: {body_str[:500]}", flush=True)
         with urllib.request.urlopen(wd_req, timeout=15) as r:
-            return r.read(), r.status, list(r.headers.items())
+            content = r.read()
+            print(f"[wd-proxy] response body: {content[:500].decode('utf-8', errors='replace')}", flush=True)
+            return content, r.status, list(r.headers.items())
 
     content, status, resp_headers = await loop.run_in_executor(None, _fetch)
 
