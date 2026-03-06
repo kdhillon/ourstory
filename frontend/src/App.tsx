@@ -47,6 +47,12 @@ export default function App() {
   const timeline = useTimeline();
   const currentYear = decodeDate(timeline.currentDateInt).year;
 
+  const { eventFeatures, windowInfo, isLoading: eventsLoading, error: eventsError } =
+    useEventSource({ currentYear, stepSize: timeline.stepSize });
+
+  const { territoryFeatures, refresh: refreshTerritories } =
+    useTerritoriesSource({ currentYear, stepSize: timeline.stepSize });
+
   const activeSnapshotYear = useMemo(() => {
     for (const f of territoryFeatures) {
       const p = f.properties as { intervalStart: number; intervalEnd: number | null; snapshotYear: number };
@@ -56,12 +62,6 @@ export default function App() {
     }
     return null;
   }, [territoryFeatures, currentYear]);
-
-  const { eventFeatures, windowInfo, isLoading: eventsLoading, error: eventsError } =
-    useEventSource({ currentYear, stepSize: timeline.stepSize });
-
-  const { territoryFeatures, refresh: refreshTerritories } =
-    useTerritoriesSource({ currentYear, stepSize: timeline.stepSize });
 
   // Map of id → patched feature for manual edits (applied on top of base features)
   const [overrideMap, setOverrideMap] = useState<Map<string, GeoJSON.Feature>>(new Map());
