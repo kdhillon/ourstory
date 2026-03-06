@@ -53,11 +53,16 @@ export default function App() {
   const { territoryFeatures, refresh: refreshTerritories } =
     useTerritoriesSource({ currentYear, stepSize: timeline.stepSize });
 
-  const { activeSnapshotYear, prevSnapshotYear, nextSnapshotYear } = useMemo(() => {
-    const years = [...new Set(
-      territoryFeatures.map((f) => (f.properties as { snapshotYear: number }).snapshotYear)
-    )].sort((a, b) => a - b);
+  const [allSnapshotYears, setAllSnapshotYears] = useState<number[]>([]);
+  useEffect(() => {
+    const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api';
+    fetch(`${API_BASE}/territory-snapshots`)
+      .then((r) => r.json())
+      .then((data: { years: number[] }) => setAllSnapshotYears(data.years))
+      .catch(console.error);
+  }, []);
 
+  const { activeSnapshotYear, prevSnapshotYear, nextSnapshotYear } = useMemo(() => {
     let active: number | null = null;
     for (const f of territoryFeatures) {
       const p = f.properties as { intervalStart: number; intervalEnd: number | null; snapshotYear: number };
@@ -67,13 +72,13 @@ export default function App() {
       }
     }
 
-    const idx = active != null ? years.indexOf(active) : -1;
+    const idx = active != null ? allSnapshotYears.indexOf(active) : -1;
     return {
       activeSnapshotYear: active,
-      prevSnapshotYear: idx > 0 ? years[idx - 1] : null,
-      nextSnapshotYear: idx >= 0 && idx < years.length - 1 ? years[idx + 1] : null,
+      prevSnapshotYear: idx > 0 ? allSnapshotYears[idx - 1] : null,
+      nextSnapshotYear: idx >= 0 && idx < allSnapshotYears.length - 1 ? allSnapshotYears[idx + 1] : null,
     };
-  }, [territoryFeatures, currentYear]);
+  }, [territoryFeatures, currentYear, allSnapshotYears]);
 
   // Map of id → patched feature for manual edits (applied on top of base features)
   const [overrideMap, setOverrideMap] = useState<Map<string, GeoJSON.Feature>>(new Map());
