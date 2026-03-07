@@ -41,7 +41,7 @@ source .env && uvicorn server.main:app --reload --port 8000   # terminal 1
 cd frontend && npm run dev                                     # terminal 2
 ```
 
-Do NOT deploy to Railway just to test — run locally first. Only deploy when the feature is ready.
+Do NOT deploy to Railway just to test — run locally first. Only deploy when the feature is ready. **Do NOT deploy to Railway unless the user explicitly asks** (e.g. says "deploy", "push to prod", or runs `/deploy`).
 
 ## Key commands
 ```bash
