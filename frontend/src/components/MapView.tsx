@@ -770,40 +770,39 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         </button>
       )}
 
-      {/* Border layer toggle */}
-      <div style={{
-        position: 'absolute',
-        bottom: 24,
-        left: 10,
-        display: 'flex',
-        background: '#ffffff',
-        borderRadius: 6,
-        border: '1px solid rgba(0,0,0,0.15)',
-        boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
-        overflow: 'hidden',
-        zIndex: 10,
-      }}>
-        {([true, false] as const).map((val, i) => (
-          <button
-            key={String(val)}
-            onClick={() => setShowBorders(val)}
-            style={{
-              padding: '5px 11px',
-              fontSize: 11,
-              fontWeight: 600,
-              fontFamily: 'inherit',
-              border: 'none',
-              borderLeft: i > 0 ? '1px solid rgba(0,0,0,0.1)' : 'none',
-              cursor: 'pointer',
-              background: showBorders === val ? '#3366cc' : 'transparent',
-              color: showBorders === val ? '#ffffff' : '#54595d',
-              transition: 'background 0.15s, color 0.15s',
-            }}
-          >
-            {val ? 'Modern Borders' : 'No Borders'}
-          </button>
-        ))}
-      </div>
+      {/* Border layer toggle — sits to the left of the NavigationControl */}
+      <button
+        onClick={() => setShowBorders((v) => !v)}
+        title={showBorders ? 'Hide Modern Borders' : 'Show Modern Borders'}
+        style={{
+          position: 'absolute',
+          top: 10,
+          right: 50,
+          zIndex: 10,
+          width: 29,
+          height: 29,
+          background: showBorders ? '#3366cc' : '#ffffff',
+          border: '1px solid rgba(0,0,0,0.3)',
+          borderRadius: 4,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+        }}
+      >
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon
+            points="7.5,1.5 13.5,5.5 13.5,9.5 7.5,13.5 1.5,9.5 1.5,5.5"
+            fill="none"
+            stroke={showBorders ? '#ffffff' : '#54595d'}
+            strokeWidth="1.4"
+            strokeDasharray="2.2 1.8"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 }
