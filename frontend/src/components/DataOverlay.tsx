@@ -109,12 +109,11 @@ export function DataOverlay({
   seedLoading, locationCount, polityCount,
   onOpenAbout,
 }: DataOverlayProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const toggle = useCallback(() => setCollapsed((v) => !v), []);
 
   return (
     <div
-      onClick={collapsed ? toggle : undefined}
       style={{
         position: 'absolute',
         top: 10,
@@ -132,33 +131,33 @@ export function DataOverlay({
         minWidth: collapsed ? 0 : 170,
         pointerEvents: 'auto',
         userSelect: 'none',
-        cursor: collapsed ? 'pointer' : 'default',
+        cursor: 'default',
       }}
     >
       {/* Collapse toggle */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {!collapsed && (
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>
-            Data
-          </span>
+        {collapsed ? (
+          <button
+            onClick={toggle}
+            title="Show data stats"
+            style={{ background: 'none', border: 'none', padding: 0, color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', letterSpacing: '0.04em' }}
+          >
+            Data ›
+          </button>
+        ) : (
+          <>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)' }}>
+              Data
+            </span>
+            <button
+              onClick={toggle}
+              title="Hide data stats"
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', padding: 0, color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 14, lineHeight: 1, fontFamily: 'inherit' }}
+            >
+              ▾
+            </button>
+          </>
         )}
-        <button
-          onClick={toggle}
-          title={collapsed ? 'Show data stats' : 'Hide data stats'}
-          style={{
-            marginLeft: collapsed ? 0 : 'auto',
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            color: 'rgba(255,255,255,0.4)',
-            cursor: 'pointer',
-            fontSize: 14,
-            lineHeight: 1,
-            fontFamily: 'inherit',
-          }}
-        >
-          {collapsed ? '▸' : '▾'}
-        </button>
       </div>
       {/* Rows — hidden when collapsed */}
       {!collapsed && (
