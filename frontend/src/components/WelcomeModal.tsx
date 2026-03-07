@@ -26,19 +26,23 @@ export function WelcomeModal({ onClose }: Props) {
           <div style={styles.section}>
             <div style={styles.sectionTitle}>Help improve territory labels</div>
             <p style={styles.text}>
-              Territory polygons are shaded regions showing which polities controlled which land at
-              a given time. Some territories appear <strong>grey with an italic label</strong>,
-              which means they haven't been matched to a polity yet.
+              Territory polygons show which polities controlled which land at a given time.
+              Unassigned territories show a <em style={{ color: '#888', fontStyle: 'italic' }}>grey italic label</em> — you can help by linking them to the correct polity,
+              turning them <em style={{ color: '#f5c518', fontStyle: 'italic', fontWeight: 700, WebkitTextStroke: '0.5px #333' }}>yellow and bold</em>.
             </p>
-            <p style={styles.text}>
-              <strong>Click any grey territory</strong> to open a search panel and assign it to the
-              correct polity. Your mapping is saved instantly and helps everyone.
-            </p>
-            <div style={styles.note}>
-              Territory snapshots exist roughly every 30–100 years, so make sure the polity you
-              assign was actually in control during <em>that snapshot year</em>, not just at some
-              point in history.
+
+            <div style={styles.screenshotRow}>
+              <div style={styles.screenshotItem}>
+                <img src="/territory-unassigned.png" alt="Unassigned territory — grey italic label" style={styles.screenshot} />
+                <div style={styles.screenshotCaption}>Unassigned — <em>grey italic</em></div>
+              </div>
+              <div style={styles.screenshotArrow}>→</div>
+              <div style={styles.screenshotItem}>
+                <img src="/territory-assigned.png" alt="Assigned territory — yellow bold label" style={styles.screenshot} />
+                <div style={styles.screenshotCaption}>Assigned — <em style={{ color: '#c8a000', fontWeight: 700 }}>yellow bold</em></div>
+              </div>
             </div>
+
           </div>
 
         </div>
@@ -131,6 +135,34 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     padding: '10px 14px',
     marginTop: 8,
+  },
+  screenshotRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    margin: '12px 0',
+  },
+  screenshotItem: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: 6,
+  },
+  screenshot: {
+    width: '100%',
+    borderRadius: 6,
+    border: '1px solid rgba(0,0,0,0.1)',
+  },
+  screenshotCaption: {
+    fontSize: 12,
+    color: '#54595d',
+    textAlign: 'center' as const,
+  },
+  screenshotArrow: {
+    fontSize: 20,
+    color: '#54595d',
+    flexShrink: 0,
   },
   footer: {
     padding: '14px 24px',

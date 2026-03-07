@@ -423,6 +423,8 @@ export default function App() {
         onTogglePolity={handleTogglePolityCategory}
         onOpenAbout={() => navigate('/about')}
         onOpenData={() => navigate('/data')}
+        onEditTerritory={() => setEditorMode((v) => !v)}
+        editorMode={editorMode}
       />
 
       <div style={{ position: 'absolute', inset: `104px 0 ${TIMELINE_BAR_HEIGHT + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
@@ -526,31 +528,7 @@ export default function App() {
       )}
       {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
 
-      <button
-          onClick={() => setEditorMode((v) => !v)}
-          title={editorMode ? 'Exit territory editor' : 'Edit territory borders'}
-          style={{
-            position: 'fixed',
-            top: 60,
-            right: 10,
-            zIndex: 200,
-            background: editorMode ? '#1e3a5f' : 'rgba(15,23,42,0.85)',
-            color: editorMode ? '#60a5fa' : '#94a3b8',
-            border: editorMode ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 6,
-            padding: '5px 10px',
-            cursor: 'pointer',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            fontSize: 12,
-            fontWeight: 600,
-            userSelect: 'none',
-            backdropFilter: 'blur(4px)',
-          }}
-        >
-          ✎
-        </button>
-
-      {editorMode && mapInstance && (
+{editorMode && mapInstance && (
         <TerritoryEditor
           map={mapInstance}
           currentYear={currentYear}

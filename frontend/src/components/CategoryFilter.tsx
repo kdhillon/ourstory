@@ -7,6 +7,8 @@ interface Props {
   onTogglePolity: (cat: Category) => void;
   onOpenData: () => void;
   onOpenAbout: () => void;
+  onEditTerritory: () => void;
+  editorMode: boolean;
 }
 
 function GroupLabel({ label, cats, activeSet, onToggle }: {
@@ -84,13 +86,14 @@ function ChipGroup({ cats, activeCategories, onToggle }: {
   );
 }
 
-export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, onOpenAbout }: Props) {
+export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, onOpenAbout, onEditTerritory, editorMode }: Props) {
   return (
     <div style={styles.bar}>
       {/* Row 1: wordmark + nav buttons */}
       <div style={styles.row}>
         <div style={styles.wordmark}>OpenHistory</div>
         <div style={{ flex: 1 }} />
+        <button onClick={onEditTerritory} style={{ ...styles.dataBtn, ...(editorMode ? styles.dataBtnActive : {}) }}>Edit Territory</button>
         <button onClick={onOpenData} style={styles.dataBtn}>Data Explorer ↗</button>
         <button onClick={onOpenAbout} style={styles.dataBtn}>About</button>
       </div>
@@ -197,5 +200,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: 'inherit',
     letterSpacing: '0.01em',
     flexShrink: 0,
+  },
+  dataBtnActive: {
+    background: '#e8f0fe',
+    borderColor: '#3366cc',
+    color: '#3366cc',
   },
 };
