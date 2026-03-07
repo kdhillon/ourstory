@@ -22,7 +22,6 @@ interface WindowData {
   yearMin: number;
   yearMax: number;
   features: GeoJSON.Feature[];
-  snapshotYears: number[];
 }
 
 function halfWidth(stepSize: number): number {
@@ -42,7 +41,7 @@ async function fetchWindow(
   yearMin: number,
   yearMax: number,
   signal: AbortSignal,
-): Promise<GeoJSON.FeatureCollection & { yearMin: number; yearMax: number; count: number; snapshotYears: number[] }> {
+): Promise<GeoJSON.FeatureCollection & { yearMin: number; yearMax: number; count: number }> {
   const url = `${API_BASE}/territories?year_min=${yearMin}&year_max=${yearMax}`;
   const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`GET /api/territories failed (${res.status})`);
@@ -54,9 +53,9 @@ export function useTerritoriesSource(opts: {
   stepSize: number;
 }): {
   territoryFeatures: GeoJSON.Feature[];
-  snapshotYears: number[];
   isLoading: boolean;
   error: string | null;
+  refresh: () => void;
 } {
   const { currentYear, stepSize } = opts;
 
@@ -81,7 +80,7 @@ export function useTerritoriesSource(opts: {
     try {
       const data = await fetchWindow(yearMin, yearMax, ctrl.signal);
       if (fetchIdRef.current !== id) return;
-      setCurrentWindow({ yearMin, yearMax, features: data.features, snapshotYears: data.snapshotYears ?? [] });
+      setCurrentWindow({ yearMin, yearMax, features: data.features });
       prefetchRef.current = null;
     } catch (err) {
       if (fetchIdRef.current !== id) return;
@@ -106,7 +105,7 @@ export function useTerritoriesSource(opts: {
     try {
       const data = await fetchWindow(yearMin, yearMax, ctrl.signal);
       if (ctrl.signal.aborted) return;
-      prefetchRef.current = { yearMin, yearMax, features: data.features, snapshotYears: data.snapshotYears ?? [] };
+      prefetchRef.current = { yearMin, yearMax, features: data.features };
     } catch {
       // Prefetch failures are silent
     }
@@ -148,7 +147,6 @@ export function useTerritoriesSource(opts: {
 
   return {
     territoryFeatures: currentWindow?.features ?? [],
-    snapshotYears: currentWindow?.snapshotYears ?? [],
     isLoading,
     error,
     refresh,

@@ -14,10 +14,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-server": "^3.0.4",
     "lucide-static": "^0.576.0",
     "maplibre-gl": "^5.19.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "topojson-client": "^3.1.0",
+    "topojson-server": "^3.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

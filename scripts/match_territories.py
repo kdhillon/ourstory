@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Match unlinked territory HB names to polities in the DB.
+Match unlinked territory rows to polities in the DB.
+
+Each row in the `territories` table has explicit year_start / year_end.
+This script matches per row (not per hb_name group), writing polity_id
+directly to the territories table.
 
 Matching strategies (applied in order, best confidence wins):
 
@@ -23,12 +27,11 @@ Sitelinks fetched from Wikidata to rank importance and sort output.
 
 Usage:
   python3 scripts/match_territories.py              # dry run, shows results
-  python3 scripts/match_territories.py --apply      # writes to territory_name_mappings
+  python3 scripts/match_territories.py --apply      # writes polity_id to territories table
   python3 scripts/match_territories.py --limit 50
   python3 scripts/match_territories.py --min-confidence 0.75
   python3 scripts/match_territories.py --output results.json
   python3 scripts/match_territories.py --no-sitelinks   # skip Wikidata fetch
-  python3 scripts/match_territories.py --overwrite-auto # re-match existing auto entries
 """
 
 import argparse
@@ -38,7 +41,6 @@ import re
 import sys
 import time
 import unicodedata
-from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
@@ -46,7 +48,7 @@ import requests
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
+DATABASE_URL = os.environ["DATABASE_URL"]
 TIME_TOLERANCE   = 25      # years either side of polity lifetime
 MIN_JACCARD_HIGH = 0.60
 MIN_JACCARD_MED  = 0.40
@@ -71,8 +73,7 @@ _STOPWORDS = {
     "el", "en", "et", "in", "at", "to", "a", "an",
     # Political entity types — excluded from token matching so that
     # "X Confederation" never false-matches "Y Confederation" via Jaccard.
-    # These words are still used in _TITLE_PREFIXES for core_name stripping.
-    "kingdom", "empire", "dynasty", "imperial", "imperial",
+    "kingdom", "empire", "dynasty", "imperial",
     "republic", "republican",
     "sultanate", "sultan",
     "duchy", "dukedom", "grand",
@@ -144,7 +145,7 @@ _STOPWORDS = {
     "first",
     "society",
     "holy", "free", "royal", "sovereign", "independent",
-    "crown", "crown",
+    "crown",
     "old", "new", "northern", "southern", "eastern", "western",
     "upper", "lower", "greater", "lesser", "little", "great",
     "inner", "outer", "central", "middle",
@@ -160,27 +161,23 @@ _STOPWORDS = {
 
 _PAREN_RE   = re.compile(r'\s*\([^)]*\)')
 _NONWORD_RE = re.compile(r'[^\w\s]')
-_DASH_RE    = re.compile(r'[\u2010\u2011\u2012\u2013\u2014\u2015\-]')  # hyphens + en/em-dashes
+_DASH_RE    = re.compile(r'[\u2010\u2011\u2012\u2013\u2014\u2015\-]')
 
 
 def normalize(s: str) -> str:
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
     s = s.lower()
-    # Normalize all dash variants (hyphen, en-dash, em-dash, …) to space before
-    # stripping other non-word chars, so "Denmark-Norway" ≡ "Denmark–Norway".
     s = _DASH_RE.sub(" ", s)
     s = _NONWORD_RE.sub(" ", s)
     return " ".join(s.split())
 
 
 def meaningful_tokens(s: str) -> set[str]:
-    """Tokens after normalizing and removing stopwords."""
     return {t for t in normalize(s).split() if t not in _STOPWORDS and len(t) > 1}
 
 
 def core_name(polity_name: str) -> str:
-    """Strip political title prefix from a polity name."""
     norm = normalize(polity_name)
     for prefix in sorted(_TITLE_PREFIXES, key=len, reverse=True):
         if norm.startswith(prefix + " "):
@@ -195,7 +192,6 @@ def jaccard(a: set, b: set) -> float:
 
 
 def name_variants(hb_name: str) -> list[tuple[str, str, float]]:
-    """Return (normalized_variant, strategy_tag, confidence) to try as exact lookups."""
     variants: list[tuple[str, str, float]] = []
     norm = normalize(hb_name)
     variants.append((norm, "exact", 1.00))
@@ -220,21 +216,13 @@ def name_variants(hb_name: str) -> list[tuple[str, str, float]]:
 def time_overlap(t_start: int, t_end: int | None,
                  p_start: int | None, p_end: int | None,
                  tol: int = TIME_TOLERANCE) -> bool:
-    """Territory interval [t_start, t_end] must overlap polity lifetime [p_start, p_end].
-    Polities with no year_start are always accepted (undated).
-    The snapshot year (t_start) itself must fall within the polity lifetime when
-    the polity has a known end year — this prevents matching a polity that ended
-    long before the snapshot even with generous tolerance.
-    """
+    """Territory interval [t_start, t_end] must overlap polity lifetime [p_start, p_end]."""
     if p_start is None:
         return True
     te = t_end if t_end is not None else 9999
     pe = p_end if p_end is not None else 9999
-    # Basic interval overlap with tolerance
     if not ((t_start - tol) <= pe and (te + tol) >= p_start):
         return False
-    # Extra: if polity has a known end year, the snapshot start must not be
-    # more than tol years past it (prevents matching long-dead polities).
     if p_end is not None and t_start > p_end + tol:
         return False
     return True
@@ -277,11 +265,6 @@ SELECT ?item (COUNT(?sitelink) AS ?n) WHERE {{
 # ── Core matching ──────────────────────────────────────────────────────────────
 
 def build_indexes(polities: list[dict]) -> tuple[dict, dict]:
-    """
-    Returns:
-      norm_index  : normalized_full_name → [polity, ...]
-      core_index  : core_name (title stripped) → [polity, ...]
-    """
     norm_index: dict[str, list[dict]] = {}
     core_index: dict[str, list[dict]] = {}
 
@@ -301,8 +284,8 @@ def build_indexes(polities: list[dict]) -> tuple[dict, dict]:
 
 def match_territory(
     hb_name: str,
-    interval_start: int,
-    interval_end: int | None,
+    t_start: int,
+    t_end: int | None,
     norm_index: dict[str, list[dict]],
     core_index: dict[str, list[dict]],
     all_polities: list[dict],
@@ -312,8 +295,7 @@ def match_territory(
     results: list[dict] = []
 
     def candidate_ok(p: dict) -> bool:
-        return time_overlap(interval_start, interval_end,
-                            p.get("year_start"), p.get("year_end"))
+        return time_overlap(t_start, t_end, p.get("year_start"), p.get("year_end"))
 
     def add(p: dict, conf: float, strategy: str):
         pid = str(p["id"])
@@ -351,7 +333,6 @@ def match_territory(
 
     # 5–6: containment matching on meaningful tokens
     hb_tokens = meaningful_tokens(hb_name)
-    single_word = len(hb_tokens) == 1  # single-word names need stricter matching
     if hb_tokens:
         for p in all_polities:
             if not candidate_ok(p):
@@ -364,20 +345,12 @@ def match_territory(
                 if not p_tokens:
                     continue
                 if hb_tokens <= p_tokens:
-                    # Require hb_name covers ≥50% of polity's tokens
-                    # Prevents "Africa" ⊆ "Caritas Middle East and North Africa"
                     if len(hb_tokens) / len(p_tokens) < 0.5:
                         continue
-                    # Skip diaspora/people polities that have EXTRA qualifier tokens
-                    # beyond the territory name. "Achagua people" (same tokens after
-                    # stopword removal) is fine; "Chinese people in Algeria" is not —
-                    # "chinese" is an extra token that makes it a poor territory match.
                     if p.get("polity_type") == "people" and p_tokens != hb_tokens:
                         continue
                     add(p, 0.80, "contained_in")
                 elif p_tokens <= hb_tokens:
-                    # Require polity name covers ≥60% of hb_name tokens
-                    # Prevents "Spain" ⊆ "Vice-Royalty of New Spain"
                     if len(p_tokens) / len(hb_tokens) < 0.6:
                         continue
                     add(p, 0.78, "contains")
@@ -388,8 +361,7 @@ def match_territory(
                     elif j >= MIN_JACCARD_MED:
                         add(p, 0.50 * (j / MIN_JACCARD_MED), "token_medium")
 
-    # 7: compound-split — for "Denmark-Norway" style names, try each part as an
-    #    exact or core lookup.  Only fires when the name contains a dash/en-dash.
+    # 7: compound-split — "Denmark-Norway" → try each part separately
     raw_parts = _DASH_RE.split(hb_name)
     if len(raw_parts) > 1:
         for part in raw_parts:
@@ -406,12 +378,8 @@ def match_territory(
 
     def _rank(m: dict) -> tuple:
         ys, ye = m.get("year_start"), m.get("year_end")
-        # Priority: confidence → has both dates → non-people type → shortest lifespan
-        # not the governing entity of a territory. Prefer empire/kingdom/republic/etc.
         is_people = 1 if m.get("polity_type") == "people" else 0
-        # Prefer polities with both start AND end year (has_both=0 sorts first)
         has_both = 0 if (ys is not None and ye is not None) else 1
-        # Among those, prefer tightest lifespan that still covers the interval
         lifespan = (ye - ys) if has_both == 0 else 999_999
         return (-m["confidence"], has_both, is_people, lifespan)
 
@@ -424,9 +392,7 @@ def match_territory(
 def main():
     parser = argparse.ArgumentParser(description="Match territories to polities")
     parser.add_argument("--apply",          action="store_true",
-                        help="Write matches to territory_name_mappings and snapshot_polygons")
-    parser.add_argument("--overwrite-auto", action="store_true",
-                        help="Re-match entries that already have auto confidence (skip manual)")
+                        help="Write polity_id directly to territories table")
     parser.add_argument("--limit",          type=int, default=0)
     parser.add_argument("--min-confidence", type=float, default=DEFAULT_MIN_CONF)
     parser.add_argument("--output",         type=str, default="")
@@ -441,58 +407,16 @@ def main():
     all_polities = [dict(r) for r in cur.fetchall()]
     print(f"Loaded {len(all_polities)} polities from DB")
 
-    # Load existing mappings — skip manual ones always, skip auto ones unless --overwrite-auto
-    cur.execute("SELECT hb_name, snapshot_year, confidence FROM territory_name_mappings")
-    manual_mapped:   set[tuple] = set()
-    auto_mapped:     set[tuple] = set()
-    for r in cur.fetchall():
-        key = (r["hb_name"], r["snapshot_year"])
-        if r["confidence"] == "manual":
-            manual_mapped.add(key)
-        else:
-            auto_mapped.add(key)
-    print(f"Already mapped: {len(manual_mapped)} manual, {len(auto_mapped)} auto")
-
-    # Load all distinct (hb_name, snapshot_year) from DB with their intervals
+    # Load unassigned, non-explicitly-unlinked territory rows
     cur.execute("""
-        WITH snapshot_intervals AS (
-            SELECT
-                snapshot_year,
-                LEAD(snapshot_year) OVER (ORDER BY snapshot_year) AS next_snapshot_year
-            FROM territory_snapshots
-        )
-        SELECT DISTINCT
-            sp.hb_name,
-            sp.snapshot_year,
-            si.snapshot_year    AS interval_start,
-            si.next_snapshot_year AS interval_end
-        FROM snapshot_polygons sp
-        JOIN snapshot_intervals si ON si.snapshot_year = sp.snapshot_year
-        WHERE NOT sp.explicitly_unlinked
-        ORDER BY sp.hb_name, sp.snapshot_year
+        SELECT id, hb_name, year_start, year_end
+        FROM territories
+        WHERE polity_id IS NULL
+          AND NOT explicitly_unlinked
+        ORDER BY year_start, hb_name
     """)
-    all_territory_rows = [dict(r) for r in cur.fetchall()]
-
-    # Build per-hb_name snapshot index (all snapshot years, for expansion at apply time)
-    hb_all_snapshots: dict[str, set[int]] = {}
-    for row in all_territory_rows:
-        hb_all_snapshots.setdefault(row["hb_name"], set()).add(row["snapshot_year"])
-
-    # Deduplicate: one candidate per hb_name (use earliest snapshot for interval)
-    seen_names: set[str] = set()
-    candidates = []
-    for row in all_territory_rows:
-        key = (row["hb_name"], row["snapshot_year"])
-        if key in manual_mapped:
-            continue  # never overwrite manual
-        if key in auto_mapped and not args.overwrite_auto:
-            continue  # skip auto unless asked
-        if row["hb_name"] in seen_names:
-            continue  # one candidate per name
-        seen_names.add(row["hb_name"])
-        candidates.append(row)
-
-    print(f"Candidates to match: {len(candidates)}")
+    candidates = [dict(r) for r in cur.fetchall()]
+    print(f"Unassigned territories to match: {len(candidates)}")
 
     if args.limit:
         candidates = candidates[: args.limit]
@@ -502,12 +426,11 @@ def main():
 
     all_results = []
     for terr in candidates:
-        hb_name       = terr["hb_name"]
-        snapshot_year = terr["snapshot_year"]
-        i_start       = terr["interval_start"]
-        i_end         = terr["interval_end"]
+        hb_name = terr["hb_name"]
+        t_start = terr["year_start"]
+        t_end   = terr["year_end"]
 
-        matches = match_territory(hb_name, i_start, i_end, norm_index, core_index, all_polities)
+        matches = match_territory(hb_name, t_start, t_end, norm_index, core_index, all_polities)
 
         if matches and matches[0]["confidence"] >= args.min_confidence:
             status = "matched"
@@ -517,12 +440,13 @@ def main():
             status = "no_match"
 
         all_results.append({
-            "hb_name":       hb_name,
-            "snapshot_year": snapshot_year,
-            "interval":      [i_start, i_end],
-            "status":        status,
-            "best_match":    matches[0] if matches else None,
-            "all_matches":   matches[:5],
+            "territory_id": str(terr["id"]),
+            "hb_name":      hb_name,
+            "year_start":   t_start,
+            "year_end":     t_end,
+            "status":       status,
+            "best_match":   matches[0] if matches else None,
+            "all_matches":  matches[:5],
         })
 
     # Fetch sitelinks for matched polities
@@ -564,7 +488,8 @@ def main():
         for r in matched:
             b  = r["best_match"]
             sl = f"  sl={b.get('sitelinks','?')}" if "sitelinks" in (b or {}) else ""
-            print(f"  ✓  {r['hb_name']:<35} → {b['polity_name']:<35} "
+            yr = f"{r['year_start']}–{r['year_end'] or '∞'}"
+            print(f"  ✓  {r['hb_name']:<35} [{yr:<14}] → {b['polity_name']:<35} "
                   f"conf={b['confidence']:.2f}  [{b['strategy']}]{sl}")
 
     if low_conf:
@@ -572,64 +497,35 @@ def main():
         for r in low_conf:
             b  = r["best_match"]
             sl = f"  sl={b.get('sitelinks','?')}" if "sitelinks" in (b or {}) else ""
-            print(f"  ~  {r['hb_name']:<35} → {b['polity_name']:<35} "
+            yr = f"{r['year_start']}–{r['year_end'] or '∞'}"
+            print(f"  ~  {r['hb_name']:<35} [{yr:<14}] → {b['polity_name']:<35} "
                   f"conf={b['confidence']:.2f}  [{b['strategy']}]{sl}")
 
     if no_match:
         print("\n── No match ─────────────────────────────────────────────────────────────────")
         for r in no_match:
-            print(f"  ✗  {r['hb_name']}")
+            yr = f"{r['year_start']}–{r['year_end'] or '∞'}"
+            print(f"  ✗  {r['hb_name']:<35} [{yr}]")
 
     if args.apply:
-        to_insert = matched
-        # Expand: each matched hb_name → all its snapshot_years
-        rows_to_write: list[tuple] = []
-        for r in to_insert:
-            b = r["best_match"]
-            all_years = sorted(hb_all_snapshots.get(r["hb_name"], {r["snapshot_year"]}))
-            for year in all_years:
-                if (r["hb_name"], year) in manual_mapped:
-                    continue  # never overwrite manual
-                rows_to_write.append((
-                    r["hb_name"], year,
-                    b["polity_id"], b.get("wikidata_qid"),
-                    str(round(b["confidence"], 3)),
-                    f"auto:{b['strategy']}",
-                ))
-
-        print(f"\nWriting {len(rows_to_write)} rows ({len(to_insert)} hb_names × all snapshot years)…")
+        print(f"\nApplying {len(matched)} matches to territories table…")
         cur2 = conn.cursor()
-        tnm_inserted = 0
-        sp_updated   = 0
-        for row in rows_to_write:
-            hb_name, year, polity_id, wikidata_qid, confidence, notes = row
+        updated = 0
+        for r in matched:
+            b = r["best_match"]
             try:
                 cur2.execute("""
-                    INSERT INTO territory_name_mappings
-                        (hb_name, snapshot_year, polity_id, wikidata_qid, confidence, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (hb_name, snapshot_year) DO UPDATE SET
-                        polity_id    = EXCLUDED.polity_id,
-                        wikidata_qid = EXCLUDED.wikidata_qid,
-                        confidence   = EXCLUDED.confidence,
-                        notes        = EXCLUDED.notes,
-                        updated_at   = NOW()
-                    WHERE territory_name_mappings.confidence != 'manual'
-                """, row)
-                tnm_inserted += cur2.rowcount
-                # Also update snapshot_polygons so COALESCE(tnm, sp) is consistent
-                cur2.execute("""
-                    UPDATE snapshot_polygons
+                    UPDATE territories
                     SET polity_id = %s
-                    WHERE hb_name = %s AND snapshot_year = %s
+                    WHERE id = %s
+                      AND polity_id IS NULL
                       AND NOT explicitly_unlinked
-                """, (polity_id, hb_name, year))
-                sp_updated += cur2.rowcount
+                """, (b["polity_id"], r["territory_id"]))
+                updated += cur2.rowcount
             except Exception as e:
-                print(f"  [error] {hb_name} / {year}: {e}", file=sys.stderr)
+                print(f"  [error] {r['hb_name']} / {r['territory_id']}: {e}", file=sys.stderr)
         conn.commit()
-        print(f"territory_name_mappings: {tnm_inserted} upserted")
-        print(f"snapshot_polygons:       {sp_updated} updated")
+        print(f"territories updated: {updated}")
 
     if args.output:
         with open(args.output, "w") as f:

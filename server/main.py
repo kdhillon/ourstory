@@ -818,154 +818,14 @@ def remove_hidden_modern_nation(polity_id: str, _: None = Depends(require_write_
         conn.close()
 
 
-@app.delete("/api/territory-mappings/by-polity/{polity_id}", status_code=204)
+@app.delete("/api/territories/by-polity/{polity_id}", status_code=204)
 def remove_territory_mappings_for_polity(polity_id: str, _: None = Depends(require_write_secret)):
-    """Remove all territory_name_mappings rows for a given polity (unlinks its territories)."""
+    """Clear polity_id on all territory rows assigned to the given polity."""
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("DELETE FROM territory_name_mappings WHERE polity_id = %s", (polity_id,))
+        cur.execute("UPDATE territories SET polity_id = NULL WHERE polity_id = %s", (polity_id,))
         conn.commit()
-    finally:
-        conn.close()
-
-
-@app.delete("/api/territory-mappings", status_code=204)
-def delete_territory_mapping(hb_name: str, snapshot_year: int, _: None = Depends(require_write_secret)):
-    """Delete a single territory name mapping and clear the polygon's polity_id."""
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "DELETE FROM territory_name_mappings WHERE hb_name = %s AND snapshot_year = %s",
-            (hb_name, snapshot_year),
-        )
-        cur.execute(
-            "UPDATE snapshot_polygons SET polity_id = NULL WHERE hb_name = %s AND snapshot_year = %s",
-            (hb_name, snapshot_year),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _cascade_territory_mapping(cur, hb_name: str, origin_year: int, polity_id: str, wikidata_qid, snapshot_years: list[int], polity_year_start, polity_year_end) -> list[int]:
-    """
-    Walk snapshot years outward from origin_year in both directions.
-    For each adjacent snapshot where:
-      - the polity is active (year_start <= snap_year and (year_end is None or year_end >= snap_year))
-      - hb_name exists in snapshot_polygons for that year
-      - the polygon has no existing polity assignment (polity_id IS NULL)
-      - no manual territory_name_mapping already exists for that (hb_name, snap_year)
-    ... assign the same polity.
-    Stops in each direction when any of those conditions fail.
-    Returns list of snapshot years where cascade assignments were made.
-    """
-    cascaded = []
-    origin_idx = snapshot_years.index(origin_year)
-
-    for direction in (-1, 1):
-        idx = origin_idx + direction
-        while 0 <= idx < len(snapshot_years):
-            snap_year = snapshot_years[idx]
-
-            # Check polity is active at this snapshot
-            if polity_year_start is not None and snap_year < polity_year_start:
-                break
-            if polity_year_end is not None and snap_year > polity_year_end:
-                break
-
-            # Check hb_name exists in this snapshot with no polity assigned
-            cur.execute("""
-                SELECT sp.polity_id,
-                       (SELECT COUNT(*) FROM territory_name_mappings
-                        WHERE hb_name = %s AND snapshot_year = %s) AS has_manual
-                FROM snapshot_polygons sp
-                WHERE sp.hb_name = %s AND sp.snapshot_year = %s
-                LIMIT 1
-            """, (hb_name, snap_year, hb_name, snap_year))
-            row = cur.fetchone()
-
-            if row is None:
-                # hb_name doesn't exist in this snapshot — stop
-                break
-            if row["polity_id"] is not None or row["has_manual"] > 0:
-                # Already assigned or has a manual mapping — stop
-                break
-
-            # Assign
-            cur.execute("""
-                INSERT INTO territory_name_mappings (hb_name, snapshot_year, polity_id, wikidata_qid, confidence)
-                VALUES (%s, %s, %s, %s, 'manual')
-                ON CONFLICT (hb_name, snapshot_year) DO NOTHING
-            """, (hb_name, snap_year, polity_id, wikidata_qid))
-            cur.execute(
-                "UPDATE snapshot_polygons SET polity_id = %s WHERE hb_name = %s AND snapshot_year = %s AND polity_id IS NULL",
-                (polity_id, hb_name, snap_year),
-            )
-            cascaded.append(snap_year)
-            idx += direction
-
-    return sorted(cascaded)
-
-
-@app.post("/api/territory-mappings", status_code=201)
-async def save_territory_mapping(request: Request, _: None = Depends(require_write_secret)):
-    """
-    Persist a manual territory name → polity mapping.
-    Upserts into territory_name_mappings with confidence='manual'.
-    Also cascades the assignment to adjacent snapshots while the polity is active
-    and the territory is unassigned.
-    """
-    body = await request.json()
-    hb_name = body.get("hbName")
-    snapshot_year = body.get("snapshotYear")
-    polity_id = body.get("polityId")
-    wikidata_qid = body.get("wikidataQid")
-
-    if not hb_name or snapshot_year is None or not polity_id:
-        raise HTTPException(400, "hbName, snapshotYear, and polityId are required")
-
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-
-        # Primary upsert
-        cur.execute("""
-            INSERT INTO territory_name_mappings (hb_name, snapshot_year, polity_id, wikidata_qid, confidence)
-            VALUES (%s, %s, %s, %s, 'manual')
-            ON CONFLICT (hb_name, snapshot_year) DO UPDATE SET
-                polity_id    = EXCLUDED.polity_id,
-                wikidata_qid = EXCLUDED.wikidata_qid,
-                confidence   = 'manual',
-                updated_at   = NOW()
-        """, (hb_name, snapshot_year, polity_id, wikidata_qid))
-        # Also update snapshot_polygons.polity_id so that the COALESCE in the territories
-        # query picks up this mapping immediately (otherwise sp.polity_id takes precedence
-        # over tnm.polity_id and the old assignment is returned even after remapping).
-        cur.execute(
-            "UPDATE snapshot_polygons SET polity_id = %s WHERE hb_name = %s AND snapshot_year = %s",
-            (polity_id, hb_name, snapshot_year),
-        )
-
-        # Cascade to adjacent snapshots
-        cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
-        snapshot_years = [r["snapshot_year"] for r in cur.fetchall()]
-
-        cur.execute("SELECT year_start, year_end FROM polities WHERE id = %s", (polity_id,))
-        polity_row = cur.fetchone()
-        polity_year_start = polity_row["year_start"] if polity_row else None
-        polity_year_end   = polity_row["year_end"]   if polity_row else None
-
-        cascaded = []
-        if snapshot_year in snapshot_years:
-            cascaded = _cascade_territory_mapping(
-                cur, hb_name, snapshot_year, polity_id, wikidata_qid,
-                snapshot_years, polity_year_start, polity_year_end,
-            )
-
-        conn.commit()
-        return {"hbName": hb_name, "snapshotYear": snapshot_year, "polityId": polity_id, "cascaded": cascaded}
     finally:
         conn.close()
 
@@ -993,28 +853,14 @@ def get_events(year_min: int, year_max: int):
         conn.close()
 
 
-@app.get("/api/territory-snapshots")
-def get_territory_snapshots():
-    """Return all loaded snapshot years in ascending order."""
-    conn = get_conn()
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
-        return {"years": [row[0] for row in cur.fetchall()]}
-    finally:
-        conn.close()
-
-
-@app.post("/api/snapshot-polygons/{polygon_id}/assign", status_code=200)
-async def assign_polygon(polygon_id: str, request: Request, _: None = Depends(require_write_secret)):
+@app.post("/api/territories/{territory_id}/assign", status_code=200)
+async def assign_territory(territory_id: str, request: Request, _: None = Depends(require_write_secret)):
     """
-    Assign a polity to a specific territory polygon.
+    Assign a polity to a territory row.
 
-    Validates that the polity's date range overlaps with the polygon's effective interval.
-    If the polity only covers part of the interval, automatically creates unassigned gap
-    rows (source_polygon_id → this polygon) for the periods before and/or after.
-    Also removes any group-level territory_name_mapping for this hb_name so the
-    per-polygon polity_id values take effect.
+    Validates that the polity's date range overlaps with the territory's year_start/year_end.
+    If the polity only covers part of the range, creates unassigned gap rows (with parent_id)
+    for the periods before and/or after.
 
     Body: { "polityId": "<uuid>" }
     Returns 422 if no overlap.
@@ -1028,31 +874,18 @@ async def assign_polygon(polygon_id: str, request: Request, _: None = Depends(re
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # Fetch polygon + its snapshot interval
+        # Fetch territory row
         cur.execute("""
-            WITH snapshot_intervals AS (
-                SELECT snapshot_year,
-                       LEAD(snapshot_year) OVER (ORDER BY snapshot_year) AS next_snapshot_year
-                FROM territory_snapshots
-            )
-            SELECT sp.id, sp.snapshot_year, sp.hb_name, sp.sub_year_start, sp.sub_year_end,
-                   si.next_snapshot_year
-            FROM snapshot_polygons sp
-            JOIN snapshot_intervals si ON si.snapshot_year = sp.snapshot_year
-            WHERE sp.id = %s
-        """, (polygon_id,))
-        polygon = cur.fetchone()
-        if not polygon:
-            raise HTTPException(404, "Polygon not found")
+            SELECT id, hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                   border_precision, boundary, year_start, year_end, accuracy
+            FROM territories WHERE id = %s
+        """, (territory_id,))
+        territory = cur.fetchone()
+        if not territory:
+            raise HTTPException(404, "Territory not found")
 
-        snap_yr      = polygon["snapshot_year"]
-        next_snap_yr = polygon["next_snapshot_year"]
-
-        # Effective interval for this polygon row
-        interval_start = polygon["sub_year_start"] if polygon["sub_year_start"] is not None else snap_yr
-        interval_end   = polygon["sub_year_end"]   if polygon["sub_year_end"]   is not None else (
-            (next_snap_yr - 1) if next_snap_yr is not None else None
-        )
+        t_start = territory["year_start"]
+        t_end   = territory["year_end"]
 
         # Fetch polity dates
         cur.execute("SELECT id, year_start, year_end FROM polities WHERE id = %s", (polity_id,))
@@ -1064,136 +897,219 @@ async def assign_polygon(polygon_id: str, request: Request, _: None = Depends(re
         p_end   = polity["year_end"]
 
         # Overlap check (treat None as ±∞)
-        iv_end_num = interval_end if interval_end is not None else 9999
+        t_end_num   = t_end   if t_end   is not None else 9999
         p_start_num = p_start if p_start is not None else -9999
         p_end_num   = p_end   if p_end   is not None else  9999
 
-        if p_start_num > iv_end_num or p_end_num < interval_start:
+        if p_start_num > t_end_num or p_end_num < t_start:
             raise HTTPException(422,
                 f"Polity ({p_start}–{p_end}) doesn't overlap with this territory's "
-                f"window ({interval_start}–{interval_end})")
+                f"window ({t_start}–{t_end})")
 
-        # Compute the polity's slice within the interval
-        slice_start = max(p_start_num, interval_start)
+        # Compute the polity's slice within the territory range
+        slice_start = max(p_start_num, t_start)
 
-        if p_end is None and interval_end is None:
+        if p_end is None and t_end is None:
             slice_end = None
         elif p_end is None:
-            slice_end = interval_end
-        elif interval_end is None:
+            slice_end = t_end
+        elif t_end is None:
             slice_end = p_end
         else:
-            slice_end = min(p_end, interval_end)
+            slice_end = min(p_end, t_end)
 
-        needs_before = slice_start > interval_start
-        needs_after  = slice_end is not None and (interval_end is None or slice_end < interval_end)
+        needs_before = slice_start > t_start
+        needs_after  = slice_end is not None and (t_end is None or slice_end < t_end)
 
-        # Update this polygon: set polity + sub-interval for the slice
+        # Update this territory: narrow its range to the polity's slice and assign polity
         cur.execute("""
-            UPDATE snapshot_polygons
-            SET polity_id = %s, sub_year_start = %s, sub_year_end = %s, explicitly_unlinked = FALSE
+            UPDATE territories
+            SET polity_id = %s, year_start = %s, year_end = %s, explicitly_unlinked = FALSE
             WHERE id = %s
-        """, (polity_id,
-              slice_start if needs_before else None,
-              slice_end   if needs_after  else None,
-              polygon_id))
+        """, (polity_id, slice_start, slice_end, territory_id))
 
-        # Gap before (unassigned) — only insert if no child row already covers this range
+        # Gap before (unassigned)
         if needs_before:
-            before_sub_start = interval_start if interval_start != snap_yr else None
-            before_sub_end   = slice_start - 1
             cur.execute("""
-                SELECT 1 FROM snapshot_polygons
-                WHERE source_polygon_id = %s AND polity_id IS NULL
-                  AND COALESCE(sub_year_start, %s) <= %s
-                  AND COALESCE(sub_year_end,   %s) >= %s
-            """, (polygon_id, snap_yr, before_sub_end, 9999, interval_start))
-            if not cur.fetchone():
-                cur.execute("""
-                    INSERT INTO snapshot_polygons
-                        (id, snapshot_year, hb_name, hb_abbrevn, border_precision,
-                         boundary, accuracy, source_polygon_id, sub_year_start, sub_year_end, polity_id)
-                    SELECT gen_random_uuid(), snapshot_year, hb_name, hb_abbrevn, border_precision,
-                           boundary, accuracy, %s, %s, %s, NULL
-                    FROM snapshot_polygons WHERE id = %s
-                """, (polygon_id, before_sub_start, before_sub_end, polygon_id))
+                INSERT INTO territories (
+                    hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                    border_precision, boundary, year_start, year_end,
+                    accuracy, polity_id, parent_id
+                )
+                SELECT hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                       border_precision, boundary, %s, %s,
+                       accuracy, NULL, %s
+                FROM territories WHERE id = %s
+            """, (t_start, slice_start - 1, territory_id, territory_id))
 
-        # Gap after (unassigned) — only insert if no child row already covers this range
+        # Gap after (unassigned)
         if needs_after:
-            after_sub_start = slice_end + 1
             cur.execute("""
-                SELECT 1 FROM snapshot_polygons
-                WHERE source_polygon_id = %s AND polity_id IS NULL
-                  AND COALESCE(sub_year_start, %s) <= %s
-                  AND COALESCE(sub_year_end,   %s) >= %s
-            """, (polygon_id, snap_yr, interval_end, 9999, after_sub_start))
-            if not cur.fetchone():
-                cur.execute("""
-                    INSERT INTO snapshot_polygons
-                        (id, snapshot_year, hb_name, hb_abbrevn, border_precision,
-                         boundary, accuracy, source_polygon_id, sub_year_start, sub_year_end, polity_id)
-                    SELECT gen_random_uuid(), snapshot_year, hb_name, hb_abbrevn, border_precision,
-                           boundary, accuracy, %s, %s, %s, NULL
-                    FROM snapshot_polygons WHERE id = %s
-                """, (polygon_id, after_sub_start, interval_end, polygon_id))
-
-        # Remove group-level mapping so per-polygon polity_id values take effect
-        # (group mapping would override sp.polity_id via COALESCE, making gap rows appear assigned)
-        cur.execute(
-            "DELETE FROM territory_name_mappings WHERE hb_name = %s AND snapshot_year = %s",
-            (polygon["hb_name"], snap_yr),
-        )
-
-        # Cascade to adjacent snapshots
-        # Use a plain cursor — _cascade_territory_mapping uses index-based row access
-        plain_cur = conn.cursor()
-        plain_cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
-        snapshot_years = [r["snapshot_year"] for r in plain_cur.fetchall()]
-
-        wikidata_qid = None
-        plain_cur.execute("SELECT wikidata_qid FROM polities WHERE id = %s", (polity_id,))
-        wqrow = plain_cur.fetchone()
-        if wqrow:
-            wikidata_qid = wqrow["wikidata_qid"]
-
-        cascaded = []
-        if snap_yr in snapshot_years:
-            cascaded = _cascade_territory_mapping(
-                plain_cur, polygon["hb_name"], snap_yr, polity_id, wikidata_qid,
-                snapshot_years, p_start, p_end,
-            )
+                INSERT INTO territories (
+                    hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                    border_precision, boundary, year_start, year_end,
+                    accuracy, polity_id, parent_id
+                )
+                SELECT hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                       border_precision, boundary, %s, %s,
+                       accuracy, NULL, %s
+                FROM territories WHERE id = %s
+            """, (slice_end + 1, t_end, territory_id, territory_id))
 
         conn.commit()
         return {
             "ok": True,
-            "intervalStart": interval_start,
-            "intervalEnd": interval_end,
+            "yearStart": t_start,
+            "yearEnd": t_end,
             "sliceStart": slice_start,
             "sliceEnd": slice_end,
             "createdBefore": needs_before,
             "createdAfter": needs_after,
-            "cascaded": cascaded,
         }
     finally:
         conn.close()
 
 
-@app.patch("/api/snapshot-polygons/{polygon_id}/unlink", status_code=204)
-def unlink_polygon(polygon_id: str, _: None = Depends(require_write_secret)):
-    """
-    Mark a single snapshot_polygon as explicitly_unlinked=TRUE.
-    The polygon stops inheriting its hb_name group mapping and renders as 'Unknown'.
-    Other polygons sharing the same hb_name are unaffected.
-    """
+@app.delete("/api/territories/{territory_id}", status_code=204)
+def delete_territory(territory_id: str, _: None = Depends(require_write_secret)):
+    """Permanently delete a territory row."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM territories WHERE id = %s", (territory_id,))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Territory not found")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.patch("/api/territories/{territory_id}/years", status_code=204)
+async def update_territory_years(territory_id: str, request: Request, _: None = Depends(require_write_secret)):
+    """Update year_start / year_end of a territory without changing its boundary."""
+    body = await request.json()
+    year_start = body.get("yearStart")
+    year_end   = body.get("yearEnd")   # None = open-ended
+    if year_start is None:
+        raise HTTPException(400, "yearStart required")
     conn = get_conn()
     try:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE snapshot_polygons SET explicitly_unlinked = TRUE WHERE id = %s",
-            (polygon_id,),
+            "UPDATE territories SET year_start = %s, year_end = %s WHERE id = %s",
+            (year_start, year_end, territory_id),
         )
         if cur.rowcount == 0:
-            raise HTTPException(404, f"Polygon {polygon_id} not found.")
+            raise HTTPException(404, "Territory not found")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.post("/api/territories", status_code=201)
+async def create_territory(request: Request, _: None = Depends(require_write_secret)):
+    """
+    Create a new territory row drawn by hand in the editor.
+    Body: { "boundary": <GeoJSON MultiPolygon>, "yearStart": <int>, "yearEnd": <int>, "hbName"?: <str> }
+    Returns: { "id": "<uuid>" }
+    """
+    body = await request.json()
+    boundary  = body.get("boundary")
+    year_start = body.get("yearStart")
+    year_end   = body.get("yearEnd", year_start)
+    hb_name    = body.get("hbName", "New Territory")
+
+    if boundary is None or year_start is None:
+        raise HTTPException(400, "boundary and yearStart required")
+
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            INSERT INTO territories (hb_name, boundary, year_start, year_end, accuracy)
+            VALUES (%s, %s::jsonb, %s, %s, 'added')
+            RETURNING id
+        """, (hb_name, json.dumps(boundary), year_start, year_end))
+        row = cur.fetchone()
+        conn.commit()
+        return {"id": str(row["id"])}
+    finally:
+        conn.close()
+
+
+@app.patch("/api/territories/{territory_id}/geometry", status_code=204)
+async def patch_territory_geometry(territory_id: str, request: Request, _: None = Depends(require_write_secret)):
+    """
+    Update the boundary of a territory for a specific year.
+    Year-splits the row if the edit year is a subset of [year_start, year_end]:
+      - Creates a before row (year_start..year-1) if year > year_start
+      - Creates an after row (year+1..year_end) if year < year_end
+      - Updates this row to cover only Y..Y with the new boundary
+
+    Body: { "boundary": <GeoJSON MultiPolygon>, "year": <int> }
+    """
+    body = await request.json()
+    boundary = body.get("boundary")
+    year = body.get("year")
+    if boundary is None or year is None:
+        raise HTTPException(400, "boundary and year required")
+
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id, year_start, year_end FROM territories WHERE id = %s", (territory_id,))
+        territory = cur.fetchone()
+        if not territory:
+            raise HTTPException(404, "Territory not found")
+
+        t_start = territory["year_start"]
+        t_end   = territory["year_end"]
+
+        if year < t_start:
+            raise HTTPException(422, f"Year {year} is before territory start ({t_start})")
+        if t_end is not None and year > t_end:
+            raise HTTPException(422, f"Year {year} is after territory end ({t_end})")
+
+        boundary_json = json.dumps(boundary)
+
+        # If editing mid-range, preserve the original boundary for the period before this year
+        if year > t_start:
+            cur.execute("""
+                INSERT INTO territories (
+                    hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                    border_precision, boundary, year_start, year_end,
+                    accuracy, polity_id, parent_id
+                )
+                SELECT hb_name, hb_abbrevn, hb_subjecto, hb_partof,
+                       border_precision, boundary, %s, %s,
+                       accuracy, polity_id, %s
+                FROM territories WHERE id = %s
+            """, (t_start, year - 1, territory_id, territory_id))
+
+        # Update this row from year Y to its original end — new boundary persists for the rest of its duration
+        cur.execute("""
+            UPDATE territories
+            SET boundary = %s::jsonb, year_start = %s, accuracy = 'edited'
+            WHERE id = %s
+        """, (boundary_json, year, territory_id))
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.patch("/api/territories/{territory_id}/unlink", status_code=204)
+def unlink_territory(territory_id: str, _: None = Depends(require_write_secret)):
+    """Mark a territory row as explicitly_unlinked=TRUE and clear polity_id."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE territories SET explicitly_unlinked = TRUE, polity_id = NULL WHERE id = %s",
+            (territory_id,),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, f"Territory {territory_id} not found.")
         conn.commit()
     finally:
         conn.close()
@@ -1202,71 +1118,31 @@ def unlink_polygon(polygon_id: str, _: None = Depends(require_write_secret)):
 @app.get("/api/territories")
 def get_territories(year_min: int, year_max: int):
     """
-    Return territory polygons active during [year_min, year_max] as a GeoJSON FeatureCollection.
-
-    A snapshot is valid from its year until the next snapshot year (exclusive), so a request
-    for 1898-1899 will return the 1800 snapshot if the next snapshot is 1900.
+    Return territory rows active during [year_min, year_max] as a GeoJSON FeatureCollection.
     """
     conn = get_conn()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cur.execute("""
-            WITH snapshot_intervals AS (
-                SELECT
-                    snapshot_year,
-                    LEAD(snapshot_year) OVER (ORDER BY snapshot_year) AS next_snapshot_year
-                FROM territory_snapshots
-            )
-            SELECT
-                sp.id, sp.snapshot_year, sp.hb_name, sp.hb_abbrevn,
-                sp.border_precision, sp.boundary, sp.accuracy,
-                sp.sub_year_start, sp.sub_year_end, sp.source_polygon_id,
-                sp.explicitly_unlinked,
-                CASE WHEN sp.explicitly_unlinked THEN NULL
-                     ELSE COALESCE(tnm.polity_id, sp.polity_id) END AS polity_id,
-                p.slug  AS polity_slug,
-                p.name  AS polity_name,
-                p.polity_type,
-                p.year_start AS polity_year_start,
-                p.year_end   AS polity_year_end,
-                si.next_snapshot_year
-            FROM snapshot_polygons sp
-            JOIN snapshot_intervals si ON si.snapshot_year = sp.snapshot_year
-            LEFT JOIN territory_name_mappings tnm
-                ON tnm.hb_name = sp.hb_name AND tnm.snapshot_year = sp.snapshot_year
-            LEFT JOIN polities p
-                ON p.id = COALESCE(sp.polity_id, tnm.polity_id)
-            WHERE si.snapshot_year <= %(year_max)s
-              AND (si.next_snapshot_year IS NULL OR si.next_snapshot_year > %(year_min)s)
-            ORDER BY sp.snapshot_year, sp.hb_name
+            SELECT t.id, t.hb_name, t.hb_abbrevn, t.border_precision, t.boundary,
+                   t.year_start, t.year_end, t.accuracy, t.explicitly_unlinked, t.parent_id,
+                   t.polity_id, p.slug AS polity_slug, p.name AS polity_name, p.polity_type,
+                   p.year_start AS polity_year_start, p.year_end AS polity_year_end
+            FROM territories t
+            LEFT JOIN polities p ON p.id = t.polity_id
+            WHERE t.year_start <= %(year_max)s
+              AND (t.year_end IS NULL OR t.year_end >= %(year_min)s)
+            ORDER BY t.year_start, t.hb_name
         """, {"year_min": year_min, "year_max": year_max})
         rows = cur.fetchall()
 
         features = []
         for tr in rows:
-            snap_yr       = tr["snapshot_year"]
-            next_snap_yr  = tr["next_snapshot_year"]
-            poly_yr_start = tr["polity_year_start"]
-
-            # interval_start: defer to polity founding only if it falls within this snapshot's window
-            interval_start = snap_yr
-            if poly_yr_start is not None:
-                upper = next_snap_yr if next_snap_yr is not None else snap_yr + 1000
-                if snap_yr < poly_yr_start <= upper:
-                    interval_start = poly_yr_start
-
-            # interval_end: just before the next snapshot (or null if newest)
-            interval_end = (next_snap_yr - 1) if next_snap_yr is not None else None
-
-            # Sub-interval overrides take precedence (succession chains)
-            if tr["sub_year_start"] is not None:
-                interval_start = tr["sub_year_start"]
-            if tr["sub_year_end"] is not None:
-                interval_end = tr["sub_year_end"]
-
             polity_type = tr["polity_type"]
             color = _POLITY_COLORS.get(polity_type, "#607D8B") if polity_type else "#78909C"
+
+            effective_polity_id = None if tr["explicitly_unlinked"] else tr["polity_id"]
 
             features.append({
                 "type": "Feature",
@@ -1274,31 +1150,22 @@ def get_territories(year_min: int, year_max: int):
                 "properties": {
                     "featureType":        "territory",
                     "polygonId":          str(tr["id"]),
-                    "snapshotYear":       snap_yr,
-                    "intervalStart":      interval_start,
-                    "intervalEnd":        interval_end,
+                    "yearStart":          tr["year_start"],
+                    "yearEnd":            tr["year_end"],
                     "hbName":             tr["hb_name"],
                     "hbAbbrevn":          tr["hb_abbrevn"],
                     "borderPrecision":    tr["border_precision"],
                     "explicitlyUnlinked": tr["explicitly_unlinked"],
-                    "polityId":           str(tr["polity_id"]) if tr["polity_id"] else None,
-                    "politySlug":         tr["polity_slug"],
-                    "polityName":         tr["polity_name"],
-                    "polityType":         polity_type,
-                    "polityYearStart":    poly_yr_start,
+                    "polityId":           str(effective_polity_id) if effective_polity_id else None,
+                    "politySlug":         tr["polity_slug"] if not tr["explicitly_unlinked"] else None,
+                    "polityName":         tr["polity_name"] if not tr["explicitly_unlinked"] else None,
+                    "polityType":         polity_type if not tr["explicitly_unlinked"] else None,
+                    "polityYearStart":    tr["polity_year_start"],
                     "polityYearEnd":      tr["polity_year_end"],
                     "accuracy":           tr["accuracy"],
-                    "sourcePolygonId":    str(tr["source_polygon_id"]) if tr["source_polygon_id"] else None,
-                    "_color":             color,
+                    "_color":             color if not tr["explicitly_unlinked"] else "#78909C",
                 },
             })
-
-        # All loaded snapshot years — returned to the frontend for prev/next navigation.
-        # To add a new snapshot: run scripts/import-territories.py --snapshot <year>
-        # then scripts/expand-territory-polities.py --snapshot <year>.
-        # This query picks them up automatically; no code change needed.
-        cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
-        all_snapshot_years = [row["snapshot_year"] for row in cur.fetchall()]
 
         return {
             "type": "FeatureCollection",
@@ -1306,7 +1173,6 @@ def get_territories(year_min: int, year_max: int):
             "count": len(features),
             "yearMin": year_min,
             "yearMax": year_max,
-            "snapshotYears": all_snapshot_years,
         }
     finally:
         conn.close()

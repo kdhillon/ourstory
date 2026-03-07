@@ -115,11 +115,15 @@ interface Props {
   /** Polity IDs whose territory polygon is visible — hides the capital dot only (not the territory) */
   polityIdsWithTerritory?: Set<string>;
   /** Called when user clicks an unmatched territory (no polity linked) */
-  onUnmatchedTerritoryClick?: (hbName: string, snapshotYear: number, polygonId: string, intervalStart: number, intervalEnd: number | null) => void;
+  onUnmatchedTerritoryClick?: (hbName: string, polygonId: string, yearStart: number, yearEnd: number | null) => void;
   /** Called when user clicks × to unlink a single polygon from its polity */
   onUnlinkPolygon?: (polygonId: string) => void;
   /** When set, only events whose partOf[] includes this QID are shown */
   majorEventFilter?: string | null;
+  /** Called once after the MapLibre map finishes loading — provides the map instance for editor components. */
+  onMapReady?: (map: Map) => void;
+  /** When true, disables all click handling (territory editor mode). */
+  editorMode?: boolean;
 }
 
 
@@ -167,12 +171,11 @@ function applyBorderVisibility(map: Map, visible: boolean) {
 interface HoveredLabel {
   polygonId: string;
   hbName: string;
-  snapshotYear: number;
   x: number;
   y: number;
 }
 
-export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter }: Props) {
+export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter, onMapReady, editorMode }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const updateFilterRef = useRef<() => void>(() => {});
@@ -401,7 +404,6 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         setHoveredLabel({
           polygonId: feat.properties?.polygonId as string,
           hbName: feat.properties?.hbName as string,
-          snapshotYear: feat.properties?.snapshotYear as number,
           x: e.point.x,
           y: e.point.y,
         });
@@ -411,6 +413,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
       });
 
       updateFilterRef.current();
+      onMapReadyRef.current?.(map);
     });
 
     map.on('moveend', () => {
@@ -436,6 +439,10 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   onSelectRef.current = onSelectFeature;
   const onUnmatchedTerritoryRef = useRef(onUnmatchedTerritoryClick);
   onUnmatchedTerritoryRef.current = onUnmatchedTerritoryClick;
+  const onMapReadyRef = useRef(onMapReady);
+  onMapReadyRef.current = onMapReady;
+  const editorModeRef = useRef(editorMode);
+  editorModeRef.current = editorMode;
   const stackRef = useRef<{ ids: string[]; index: number } | null>(null);
 
   useEffect(() => {
@@ -448,6 +455,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
     const CLICK_LAYERS = ['events-major', 'circles-major', 'circles-minor', 'stars-polity', 'fills-territory', 'labels-territory'];
 
     const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (editorModeRef.current) return;
       const features = map.queryRenderedFeatures(e.point, { layers: CLICK_LAYERS });
       if (!features || features.length === 0) return;
 
@@ -457,13 +465,12 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         const polityId = top.properties?.polityId as string | null;
         if (!polityId) {
           // Unmatched territory — open the mapping assignment UI
-          const hbName       = top.properties?.hbName       as string | undefined;
-          const snapshotYear = top.properties?.snapshotYear as number | undefined;
-          const polygonId    = top.properties?.polygonId    as string | undefined;
-          const intervalStart = top.properties?.intervalStart as number | undefined;
-          const intervalEnd   = top.properties?.intervalEnd   as number | null | undefined;
-          if (hbName && snapshotYear != null && polygonId) {
-            onUnmatchedTerritoryRef.current?.(hbName, snapshotYear, polygonId, intervalStart ?? snapshotYear, intervalEnd ?? null);
+          const hbName    = top.properties?.hbName     as string | undefined;
+          const polygonId = top.properties?.polygonId  as string | undefined;
+          const yearStart = top.properties?.yearStart   as number | undefined;
+          const yearEnd   = top.properties?.yearEnd     as number | null | undefined;
+          if (hbName && polygonId && yearStart != null) {
+            onUnmatchedTerritoryRef.current?.(hbName, polygonId, yearStart, yearEnd ?? null);
           }
           return;
         }
@@ -647,19 +654,19 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
 
     source.setData({ type: 'FeatureCollection', features: visible });
 
-    // Territory fill layer — time-filter by intervalStart/intervalEnd
+    // Territory fill layer — time-filter by yearStart/yearEnd
     const terrSource = map.getSource('territories') as GeoJSONSource | undefined;
     if (terrSource) {
       const allTerritories = territoriesGeojsonRef.current?.features ?? [];
       const visibleTerritories = allTerritories.flatMap((f) => {
         const p = f.properties as {
-          intervalStart: number;
-          intervalEnd: number | null;
+          yearStart: number;
+          yearEnd: number | null;
           polityType: string | null;
           polityId: string | null;
         };
-        if (p.intervalStart > currentYear) return [];
-        if (p.intervalEnd !== null && currentYear > p.intervalEnd) return [];
+        if (p.yearStart > currentYear) return [];
+        if (p.yearEnd !== null && currentYear > p.yearEnd) return [];
         // Apply polity category filter for linked territories; unlinked always show
         if (p.polityType && !activePolityCategories.has(p.polityType as Category)) return [];
         // If polity is a hidden modern nation, render territory as unlinked (gray, no name)

@@ -82,7 +82,7 @@ def export(conn: "psycopg2.connection | None" = None) -> int:
           sitelinks_count
         FROM polities
         WHERE lng IS NOT NULL AND lat IS NOT NULL
-           OR id IN (SELECT DISTINCT polity_id FROM snapshot_polygons WHERE polity_id IS NOT NULL)
+           OR id IN (SELECT DISTINCT polity_id FROM territories WHERE polity_id IS NOT NULL)
            OR polity_type = 'people'
         ORDER BY year_start NULLS LAST
     """)
@@ -209,92 +209,50 @@ def export(conn: "psycopg2.connection | None" = None) -> int:
     OUT_PATH.write_text(json.dumps(geojson, indent=2))
 
     # ── Territory polygons ───────────────────────────────────────────────────
-    # Export snapshot_polygons as a separate territories.geojson.
-    # Each feature has intervalStart/intervalEnd for time-based filtering in MapView.
-    # Polygons linked to our polities use polityType for color + category filtering.
-    # Unlinked polygons (indigenous territories etc.) still render but without polity info.
-
-    # Compute ordered snapshot years so we can derive interval_end per polygon
-    cur.execute("SELECT snapshot_year FROM territory_snapshots ORDER BY snapshot_year")
-    snapshot_years = [r["snapshot_year"] for r in cur.fetchall()]
-    next_year: dict[int, int | None] = {}
-    for i, yr in enumerate(snapshot_years):
-        next_year[yr] = snapshot_years[i + 1] if i + 1 < len(snapshot_years) else None
-
-    # Build polity_id → polity metadata lookup from already-fetched polities
-    polity_id_map = {
-        str(row["id"]): row for row in polities
-    }
+    # Export territories as a separate territories.geojson.
+    # Each feature has yearStart/yearEnd for time-based filtering in MapView.
+    # Rows linked to polities use polityType for color + category filtering.
 
     cur.execute("""
         SELECT
-          sp.id, sp.snapshot_year, sp.hb_name, sp.hb_abbrevn,
-          sp.border_precision, sp.boundary, sp.accuracy,
-          sp.sub_year_start, sp.sub_year_end, sp.source_polygon_id,
-          COALESCE(sp.polity_id, tnm.polity_id) AS polity_id,
+          t.id, t.hb_name, t.hb_abbrevn, t.border_precision, t.boundary,
+          t.year_start, t.year_end, t.accuracy, t.explicitly_unlinked,
+          t.polity_id,
           p.slug AS polity_slug, p.name AS polity_name,
           p.polity_type, p.year_start AS polity_year_start, p.year_end AS polity_year_end
-        FROM snapshot_polygons sp
-        LEFT JOIN territory_name_mappings tnm
-          ON tnm.hb_name = sp.hb_name AND tnm.snapshot_year = sp.snapshot_year
-        LEFT JOIN polities p
-          ON p.id = COALESCE(sp.polity_id, tnm.polity_id)
-        ORDER BY sp.snapshot_year, sp.hb_name
+        FROM territories t
+        LEFT JOIN polities p ON p.id = t.polity_id
+        ORDER BY t.year_start, t.hb_name
     """)
     territory_rows = cur.fetchall()
 
     territory_features = []
     for tr in territory_rows:
-        snap_yr = tr["snapshot_year"]
-        poly_yr_start = tr["polity_year_start"]
-        poly_yr_end   = tr["polity_year_end"]
-
-        # interval_start: only defer to polity's founding year if it falls WITHIN
-        # this snapshot's interval (i.e. between snap_yr and next snapshot).
-        # If poly_yr_start is before snap_yr (normal) or way after (wrong-era match),
-        # just use snap_yr so the territory still renders correctly at this snapshot.
-        nxt_for_start = next_year.get(snap_yr)
-        interval_start = snap_yr
-        if poly_yr_start is not None:
-            upper = nxt_for_start if nxt_for_start is not None else snap_yr + 1000
-            if snap_yr < poly_yr_start <= upper:
-                interval_start = poly_yr_start
-
-        # interval_end: just before the next snapshot year (or null if newest snapshot).
-        nxt = next_year.get(snap_yr)
-        interval_end = (nxt - 1) if nxt is not None else None
-
-        # Sub-interval overrides: when set, these take precedence over derived interval.
-        # Used by expand-territory-polities.py to split a snapshot interval across
-        # multiple successor polities (e.g. First Republic 1800-1804, First Empire 1804-1814).
-        if tr["sub_year_start"] is not None:
-            interval_start = tr["sub_year_start"]
-        if tr["sub_year_end"] is not None:
-            interval_end = tr["sub_year_end"]
-
         polity_type = tr["polity_type"]
-        color = _POLITY_COLORS.get(polity_type, "#607D8B") if polity_type else "#78909C"
+        explicitly_unlinked = tr["explicitly_unlinked"]
+        color = _POLITY_COLORS.get(polity_type, "#607D8B") if (polity_type and not explicitly_unlinked) else "#78909C"
+        effective_polity_id = None if explicitly_unlinked else tr["polity_id"]
 
         territory_features.append({
             "type": "Feature",
             "geometry": tr["boundary"],   # already a dict (psycopg2 JSONB → dict)
             "properties": {
-                "featureType": "territory",
-                "snapshotYear": snap_yr,
-                "intervalStart": interval_start,
-                "intervalEnd": interval_end,
-                "hbName": tr["hb_name"],
-                "hbAbbrevn": tr["hb_abbrevn"],
-                "borderPrecision": tr["border_precision"],
-                "polityId": str(tr["polity_id"]) if tr["polity_id"] else None,
-                "politySlug": tr["polity_slug"],
-                "polityName": tr["polity_name"],
-                "polityType": polity_type,
-                "polityYearStart": poly_yr_start,
-                "polityYearEnd": poly_yr_end,
-                "accuracy": tr["accuracy"],
-                "sourcePolygonId": str(tr["source_polygon_id"]) if tr["source_polygon_id"] else None,
-                "_color": color,
+                "featureType":        "territory",
+                "polygonId":          str(tr["id"]),
+                "yearStart":          tr["year_start"],
+                "yearEnd":            tr["year_end"],
+                "hbName":             tr["hb_name"],
+                "hbAbbrevn":          tr["hb_abbrevn"],
+                "borderPrecision":    tr["border_precision"],
+                "explicitlyUnlinked": explicitly_unlinked,
+                "polityId":           str(effective_polity_id) if effective_polity_id else None,
+                "politySlug":         tr["polity_slug"] if not explicitly_unlinked else None,
+                "polityName":         tr["polity_name"] if not explicitly_unlinked else None,
+                "polityType":         polity_type if not explicitly_unlinked else None,
+                "polityYearStart":    tr["polity_year_start"],
+                "polityYearEnd":      tr["polity_year_end"],
+                "accuracy":           tr["accuracy"],
+                "_color":             color,
             },
         })
 

@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 import { checkLogin } from './lib/wikidataApi';
 import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, fetchManualPolities, fetchHiddenFeatures, setFeatureHidden } from './lib/api';
 import { MapView } from './components/MapView';
+import { TerritoryEditor } from './editor/TerritoryEditor';
 import { TerritoryMappingModal } from './components/TerritoryMappingModal';
 import { TimelineBar, TIMELINE_BAR_HEIGHT } from './components/TimelineBar';
 import { InfoPanel } from './components/InfoPanel';
@@ -83,24 +85,8 @@ export default function App() {
   const { eventFeatures, windowInfo, isLoading: eventsLoading, error: eventsError } =
     useEventSource({ currentYear: debouncedYear, stepSize: timeline.stepSize });
 
-  const { territoryFeatures, snapshotYears, refresh: refreshTerritories, isLoading: territoriesLoading, error: territoriesError } =
+  const { territoryFeatures, refresh: refreshTerritories, isLoading: territoriesLoading, error: territoriesError } =
     useTerritoriesSource({ currentYear: debouncedYear, stepSize: timeline.stepSize });
-
-  const { activeSnapshotYear, prevSnapshotYear, nextSnapshotYear } = useMemo(() => {
-    // Active snapshot = highest snapshot year that has started (snapshotYear <= currentYear).
-    // We use snapshotYears directly rather than iterating territory features, which avoids
-    // edge-case bugs where a sub_year_end on an older snapshot coincidentally equals currentYear
-    // (e.g. First Empire sub_year_end=1815 matching at year=1815, overriding the 1815 snapshot).
-    let idx = -1;
-    for (let i = snapshotYears.length - 1; i >= 0; i--) {
-      if (snapshotYears[i] <= currentYear) { idx = i; break; }
-    }
-    return {
-      activeSnapshotYear: idx >= 0 ? snapshotYears[idx] : null,
-      prevSnapshotYear: idx > 0 ? snapshotYears[idx - 1] : null,
-      nextSnapshotYear: idx >= 0 && idx < snapshotYears.length - 1 ? snapshotYears[idx + 1] : null,
-    };
-  }, [currentYear, snapshotYears]);
 
   // Map of id → patched feature for manual edits (applied on top of base features)
   const [overrideMap, setOverrideMap] = useState<Map<string, GeoJSON.Feature>>(new Map());
@@ -119,13 +105,13 @@ export default function App() {
   // polityId → hideUntilYear for modern nations hidden in historical views
   const [hiddenNations, setHiddenNations] = useState<Map<string, number>>(new Map());
   // Unmatched territory the user clicked — shows the mapping assignment modal
-  const [mappingTarget, setMappingTarget] = useState<{ hbName: string; snapshotYear: number; polygonId: string; intervalStart: number; intervalEnd: number | null } | null>(null);
+  const [mappingTarget, setMappingTarget] = useState<{ hbName: string; polygonId: string; yearStart: number; yearEnd: number | null } | null>(null);
   // QID of the major event chip selected in the bottom bar (null = no filter)
   const [majorEventFilter, setMajorEventFilter] = useState<string | null>(null);
   const [hasMajorEvents, setHasMajorEvents] = useState(false);
   const [fitBoundsRequest, setFitBoundsRequest] = useState<{ bbox: [number,number,number,number]; id: number } | null>(null);
   const fitBoundsIdRef = useRef(0);
-  // Mappings saved in this session: "hbName::snapshotYear" → { polityId, polityName }
+  // Mappings saved in this session: polygonId → { polityId, polityName }
   // Used to immediately reflect matched territory labels without re-exporting
   const [localMappings, setLocalMappings] = useState<Map<string, { polityId: string; polityName: string }>>(new Map());
   // Polygon IDs explicitly unlinked this session (per-polygon, not group-level)
@@ -133,6 +119,9 @@ export default function App() {
   const [showWelcome, setShowWelcome] = useState(() => shouldShowWelcome());
   // IDs of features the user has manually hidden from the map
   const [hiddenFeatureIds, setHiddenFeatureIds] = useState<Set<string>>(new Set());
+  // Territory editor
+  const [editorMode, setEditorMode] = useState(false);
+  const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
 
   const territoriesFeatureCollection = useMemo(
     (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: territoryFeatures }),
@@ -144,16 +133,12 @@ export default function App() {
     return {
       ...territoriesFeatureCollection,
       features: territoriesFeatureCollection.features.map((f) => {
-        const p = f.properties as { polygonId: string; hbName: string; snapshotYear: number; polityId: string | null };
+        const p = f.properties as { polygonId: string; polityId: string | null };
         // Per-polygon unlink: clear polity info for this specific polygon
         if (localPolygonUnlinks.has(p.polygonId)) {
           return { ...f, properties: { ...f.properties, polityId: null, polityName: null, explicitlyUnlinked: true } };
         }
-        // localMappings must be checked before the p.polityId early-return so that
-        // territories already linked to a hidden/suppressed polity (e.g. modern Spain)
-        // can be re-mapped without the existing polityId blocking the update.
-        const key = `${p.hbName}::${p.snapshotYear}`;
-        const mapping = localMappings.get(key);
+        const mapping = localMappings.get(p.polygonId);
         if (mapping) {
           return { ...f, properties: { ...f.properties, polityId: mapping.polityId, polityName: mapping.polityName } };
         }
@@ -206,10 +191,10 @@ export default function App() {
   const polityIdsWithTerritory = useMemo(() => {
     const ids = new Set<string>();
     for (const f of patchedTerritories.features) {
-      const p = f.properties as { polityId: string | null; intervalStart: number; intervalEnd: number | null };
+      const p = f.properties as { polityId: string | null; yearStart: number; yearEnd: number | null };
       if (!p.polityId) continue;
-      if (p.intervalStart > currentYear) continue;
-      if (p.intervalEnd !== null && currentYear > p.intervalEnd) continue;
+      if (p.yearStart > currentYear) continue;
+      if (p.yearEnd !== null && currentYear > p.yearEnd) continue;
       ids.add(p.polityId);
     }
     return ids;
@@ -445,10 +430,6 @@ export default function App() {
           windowInfo={windowInfo}
           isLoading={eventsLoading}
           error={eventsError}
-          snapshotYear={activeSnapshotYear}
-          prevSnapshotYear={prevSnapshotYear}
-          nextSnapshotYear={nextSnapshotYear}
-          onSeekToSnapshot={(y) => timeline.seek(encodeDate(y, 1, 1))}
           territoriesLoading={territoriesLoading}
           territoriesError={territoriesError}
           seedLoading={seedLoading}
@@ -469,9 +450,11 @@ export default function App() {
           hiddenNations={hiddenNations}
           suppressedPolityIds={suppressedPolityIds}
           polityIdsWithTerritory={polityIdsWithTerritory}
-          onUnmatchedTerritoryClick={(hbName, snapshotYear, polygonId, intervalStart, intervalEnd) => setMappingTarget({ hbName, snapshotYear, polygonId, intervalStart, intervalEnd })}
+          onUnmatchedTerritoryClick={(hbName, polygonId, yearStart, yearEnd) => setMappingTarget({ hbName, polygonId, yearStart, yearEnd })}
           onUnlinkPolygon={handleUnlinkPolygon}
           majorEventFilter={majorEventFilter}
+          onMapReady={setMapInstance}
+          editorMode={editorMode}
         />
       </div>
 
@@ -516,10 +499,9 @@ export default function App() {
       {mappingTarget && (
         <TerritoryMappingModal
           hbName={mappingTarget.hbName}
-          snapshotYear={mappingTarget.snapshotYear}
           polygonId={mappingTarget.polygonId}
-          intervalStart={mappingTarget.intervalStart}
-          intervalEnd={mappingTarget.intervalEnd}
+          yearStart={mappingTarget.yearStart}
+          yearEnd={mappingTarget.yearEnd}
           polities={polityFeatures}
           onClose={() => setMappingTarget(null)}
           onPolityImported={(feature) => {
@@ -530,14 +512,55 @@ export default function App() {
           }}
           onSaved={(polityId, polityName) => {
             setLocalMappings((m) => new Map(m).set(
-              `${mappingTarget.hbName}::${mappingTarget.snapshotYear}`,
+              mappingTarget.polygonId,
               { polityId, polityName },
             ));
+            refreshTerritories();
+          }}
+          onYearsUpdated={refreshTerritories}
+          onDeleted={() => {
+            setMappingTarget(null);
             refreshTerritories();
           }}
         />
       )}
       {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
+
+      <button
+          onClick={() => setEditorMode((v) => !v)}
+          title={editorMode ? 'Exit territory editor' : 'Edit territory borders'}
+          style={{
+            position: 'fixed',
+            top: 60,
+            right: 10,
+            zIndex: 200,
+            background: editorMode ? '#1e3a5f' : 'rgba(15,23,42,0.85)',
+            color: editorMode ? '#60a5fa' : '#94a3b8',
+            border: editorMode ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 6,
+            padding: '5px 10px',
+            cursor: 'pointer',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontSize: 12,
+            fontWeight: 600,
+            userSelect: 'none',
+            backdropFilter: 'blur(4px)',
+          }}
+        >
+          ✎
+        </button>
+
+      {editorMode && mapInstance && (
+        <TerritoryEditor
+          map={mapInstance}
+          currentYear={currentYear}
+          onClose={() => setEditorMode(false)}
+          onSaved={() => { refreshTerritories(); setEditorMode(false); }}
+          onTerritoryCreated={(polygonId, yearStart, yearEnd) =>
+            setMappingTarget({ hbName: 'New Territory', polygonId, yearStart, yearEnd })
+          }
+        />
+      )}
     </div>
   );
 }

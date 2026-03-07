@@ -95,12 +95,11 @@ export async function fetchPolityOverrides(): Promise<GeoJSON.FeatureCollection>
 }
 
 /**
- * Mark a single territory polygon as explicitly unlinked from its group name mapping.
- * Only affects this polygon — others sharing the same hb_name remain linked.
+ * Mark a single territory row as explicitly unlinked (clears polity_id).
  */
 export async function unlinkPolygon(polygonId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/snapshot-polygons/${polygonId}/unlink`, { method: 'PATCH', headers: withWriteSecret() });
-  if (!res.ok) throw new Error(`API PATCH unlink polygon failed (${res.status})`);
+  const res = await fetch(`${API_BASE}/territories/${polygonId}/unlink`, { method: 'PATCH', headers: withWriteSecret() });
+  if (!res.ok) throw new Error(`API PATCH unlink territory failed (${res.status})`);
 }
 
 export interface HiddenNation {
@@ -130,20 +129,34 @@ export async function removeHiddenNation(polityId: string): Promise<void> {
 }
 
 export async function removeTerritoryMappingsByPolity(polityId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/territory-mappings/by-polity/${polityId}`, { method: 'DELETE', headers: withWriteSecret() });
-  if (!res.ok) throw new Error(`API DELETE territory-mappings/by-polity failed (${res.status})`);
+  const res = await fetch(`${API_BASE}/territories/by-polity/${polityId}`, { method: 'DELETE', headers: withWriteSecret() });
+  if (!res.ok) throw new Error(`API DELETE territories/by-polity failed (${res.status})`);
 }
 
-export async function deleteTerritoryMapping(hbName: string, snapshotYear: number): Promise<void> {
-  const params = new URLSearchParams({ hb_name: hbName, snapshot_year: String(snapshotYear) });
-  const res = await fetch(`${API_BASE}/territory-mappings?${params}`, { method: 'DELETE', headers: withWriteSecret() });
-  if (!res.ok) throw new Error(`API DELETE territory-mappings failed (${res.status})`);
+// ── Territory geometry editing (editor/ prototype) ────────────────────────
+
+export async function patchTerritoryGeometry(
+  territoryId: string,
+  boundary: GeoJSON.MultiPolygon,
+  year: number,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/territories/${territoryId}/geometry`, {
+    method: 'PATCH',
+    headers: withWriteSecret({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ boundary, year }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Geometry patch failed (${res.status}): ${text}`);
+  }
 }
 
 /**
  * Fetch IDs of all manually-hidden polities and events.
  */
 export interface AssignResult {
+  yearStart: number;
+  yearEnd: number | null;
   sliceStart: number;
   sliceEnd: number | null;
   createdBefore: boolean;
@@ -151,12 +164,12 @@ export interface AssignResult {
 }
 
 /**
- * Assign a polity to a specific territory polygon.
+ * Assign a polity to a territory row.
  * Validates overlap and creates gap rows automatically.
  * Throws with a descriptive message on 422 (no overlap) or other errors.
  */
 export async function assignPolygon(polygonId: string, polityId: string): Promise<AssignResult> {
-  const res = await fetch(`${API_BASE}/snapshot-polygons/${polygonId}/assign`, {
+  const res = await fetch(`${API_BASE}/territories/${polygonId}/assign`, {
     method: 'POST',
     headers: withWriteSecret({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ polityId }),
@@ -200,6 +213,48 @@ export async function fetchManualPolities(): Promise<GeoJSON.Feature[]> {
   return fc.features ?? [];
 }
 
+export async function deleteTerritoryRow(polygonId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/territories/${polygonId}`, { method: 'DELETE', headers: withWriteSecret() });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Delete territory failed (${res.status}): ${text}`);
+  }
+}
+
+export async function updateTerritoryYears(
+  polygonId: string,
+  yearStart: number,
+  yearEnd: number | null,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/territories/${polygonId}/years`, {
+    method: 'PATCH',
+    headers: withWriteSecret({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ yearStart, yearEnd }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Update years failed (${res.status}): ${text}`);
+  }
+}
+
+export async function createTerritory(
+  boundary: GeoJSON.MultiPolygon,
+  yearStart: number,
+  yearEnd: number | null,
+): Promise<string> {
+  const res = await fetch(`${API_BASE}/territories`, {
+    method: 'POST',
+    headers: withWriteSecret({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ boundary, yearStart, yearEnd }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Create territory failed (${res.status}): ${text}`);
+  }
+  const data = await res.json() as { id: string };
+  return data.id;
+}
+
 export async function importPolityFromWikidata(qid: string): Promise<GeoJSON.Feature> {
   const res = await fetch(`${API_BASE}/polities/import-from-wikidata`, {
     method: 'POST',
@@ -213,19 +268,3 @@ export async function importPolityFromWikidata(qid: string): Promise<GeoJSON.Fea
   return res.json();
 }
 
-export async function saveTerritoryMapping(
-  hbName: string,
-  snapshotYear: number,
-  polityId: string,
-  wikidataQid: string | null,
-): Promise<void> {
-  const res = await fetch(`${API_BASE}/territory-mappings`, {
-    method: 'POST',
-    headers: withWriteSecret({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ hbName, snapshotYear, polityId, wikidataQid }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`API POST territory-mappings failed (${res.status}): ${text}`);
-  }
-}

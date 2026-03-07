@@ -13,10 +13,6 @@ export interface DataOverlayProps {
   windowInfo: WindowInfo | null;
   isLoading: boolean;
   error: string | null;
-  snapshotYear: number | null;
-  prevSnapshotYear: number | null;
-  nextSnapshotYear: number | null;
-  onSeekToSnapshot: (year: number) => void;
   territoriesLoading: boolean;
   territoriesError: string | null;
   seedLoading: boolean;
@@ -29,7 +25,7 @@ const DEFINITIONS: Record<string, string> = {
   events: 'Battles, elections, treaties, disasters, discoveries, and more — each with a date and location.',
   locations: 'Cities, regions, and countries referenced by events.',
   polities: 'Kingdoms, empires, republics, tribes, nations, indigenous peoples, colonies, and other political entities.',
-  'territory snapshot': 'Shaded boundary polygons from historical map snapshots, linked to polities.',
+  territories: 'Shaded boundary polygons linked to polities, covering their active date ranges.',
 };
 
 function Spinner() {
@@ -105,16 +101,10 @@ const badge: React.CSSProperties = {
   fontSize: 11,
   color: 'rgba(255,255,255,0.7)',
 };
-const arrowBtn: React.CSSProperties = {
-  background: 'none', border: 'none', padding: '0 2px',
-  fontSize: 14, color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
-  lineHeight: 1, fontFamily: 'inherit',
-};
 const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6 };
 
 export function DataOverlay({
   windowInfo, isLoading, error,
-  snapshotYear, prevSnapshotYear, nextSnapshotYear, onSeekToSnapshot,
   territoriesLoading, territoriesError,
   seedLoading, locationCount, polityCount,
   onOpenAbout,
@@ -202,39 +192,11 @@ export function DataOverlay({
 
           {/* Territories row */}
           <div style={row}>
-            <RowLabel name="territory snapshot" onOpenAbout={onOpenAbout} />
+            <RowLabel name="territories" onOpenAbout={onOpenAbout} />
             {territoriesLoading ? (
               <Spinner />
-            ) : snapshotYear !== null ? (
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
-                <button
-                  onClick={() => prevSnapshotYear != null && onSeekToSnapshot(prevSnapshotYear)}
-                  disabled={prevSnapshotYear == null}
-                  title={prevSnapshotYear != null
-                    ? `Jump to ${prevSnapshotYear} snapshot\n\nTerritory boundaries are hand-drawn for specific snapshot years. The active snapshot holds until the next one begins — click to jump to the previous snapshot year.`
-                    : undefined}
-                  style={{ ...arrowBtn, opacity: prevSnapshotYear == null ? 0.25 : 1 }}
-                >‹</button>
-                <button
-                  onClick={() => onSeekToSnapshot(snapshotYear)}
-                  title={`Active snapshot: ${snapshotYear}\n\nTerritory boundaries are hand-drawn for specific snapshot years. The ${snapshotYear} snapshot is active for all years until the next snapshot begins.`}
-                  style={{
-                    background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: 4,
-                    padding: '1px 5px', fontSize: 11, color: 'rgba(255,255,255,0.8)',
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}
-                >{snapshotYear}</button>
-                <button
-                  onClick={() => nextSnapshotYear != null && onSeekToSnapshot(nextSnapshotYear)}
-                  disabled={nextSnapshotYear == null}
-                  title={nextSnapshotYear != null
-                    ? `Jump to ${nextSnapshotYear} snapshot\n\nTerritory boundaries are hand-drawn for specific snapshot years. The active snapshot holds until the next one begins — click to jump to the next snapshot year.`
-                    : undefined}
-                  style={{ ...arrowBtn, opacity: nextSnapshotYear == null ? 0.25 : 1 }}
-                >›</button>
-              </div>
             ) : (
-              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginLeft: 'auto' }}>none</span>
+              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, marginLeft: 'auto' }}>active</span>
             )}
           </div>
 
