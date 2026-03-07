@@ -147,7 +147,7 @@ export function UnlocatedEventsPanel({ eventFeatures, currentDateInt, stepSize, 
         }}
         onClick={() => setCollapsed((v) => !v)}
       >
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#54595d', flex: 1 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#54595d', flex: 1 }}>
           {collapsed ? (total > 0 ? `Unlocated (${total})` : 'Unlocated') : 'Unlocated Events'}
         </span>
         <span style={{ fontSize: 18, color: '#9a9a9a', lineHeight: 1 }}>
