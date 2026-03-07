@@ -258,6 +258,76 @@ def build_event_features_bulk(cur, year_min: int, year_max: int) -> list[dict]:
     return features
 
 
+# ── Location auto-import helper ─────────────────────────────────────────────────
+
+def _ensure_location_exists(cur, qid: str) -> str:
+    """
+    Ensure a location with the given Wikidata QID exists in our locations table.
+    If not present, fetch it from Wikidata, classify its type, and insert it.
+    Returns the location_type ('city', 'region', or 'country').
+    """
+    cur.execute("SELECT location_type FROM locations WHERE wikidata_qid = %s", (qid,))
+    row = cur.fetchone()
+    if row:
+        return row["location_type"]
+
+    # Not in DB — fetch from Wikidata and insert
+    try:
+        entity = _wd_fetch(qid)
+    except Exception:
+        return "region"  # graceful fallback if Wikidata is unreachable
+
+    claims = entity.get("claims", {})
+    labels = entity.get("labels", {})
+    sitelinks = entity.get("sitelinks", {})
+
+    name = labels.get("en", {}).get("value") or qid
+    wiki_title = sitelinks.get("enwiki", {}).get("title")
+
+    # Classify type from P31 instance-of QIDs
+    _CITY_P31   = {"Q515", "Q1549591", "Q532", "Q3957", "Q7930989", "Q2514025", "Q486972"}
+    _REGION_P31 = {"Q82794", "Q10864048", "Q1428", "Q35657", "Q11828004", "Q56061",
+                   "Q107390", "Q16110", "Q13220204", "Q3455524"}
+    p31_qids = {
+        s["mainsnak"]["datavalue"]["value"]["id"]
+        for s in claims.get("P31", [])
+        if s["mainsnak"].get("datavalue", {}).get("type") == "wikibase-entityid"
+    }
+    if p31_qids & _CITY_P31:
+        loc_type = "city"
+    elif p31_qids & _REGION_P31:
+        loc_type = "region"
+    else:
+        loc_type = "region"  # default for ambiguous entities
+
+    # Coordinates
+    coords = _wd_coords(claims)
+    lat = coords[0] if coords else None
+    lng = coords[1] if coords else None
+
+    # Slug — lowercase, hyphenated
+    slug_base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    slug = slug_base
+    suffix = 1
+    while True:
+        cur.execute("SELECT 1 FROM locations WHERE slug = %s", (slug,))
+        if not cur.fetchone():
+            break
+        slug = f"{slug_base}-{suffix}"
+        suffix += 1
+
+    cur.execute(
+        """
+        INSERT INTO locations
+            (wikidata_qid, slug, name, wikipedia_title, location_type, lat, lng, pipeline_run)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'manual-location-import')
+        ON CONFLICT (wikidata_qid) DO NOTHING
+        """,
+        (qid, slug, name, wiki_title, loc_type, lat, lng),
+    )
+    return loc_type
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────────
 
 # Fields the PATCH endpoint is allowed to update, mapped to their DB column names.
@@ -295,13 +365,12 @@ async def patch_feature(event_id: str, request: Request, _: None = Depends(requi
         if not cur.fetchone():
             raise HTTPException(404, f"Event {event_id} not found.")
 
-        # If a location QID is provided but no level, resolve from our locations table
+        # If a location QID is provided but no level, ensure the location exists
+        # in our locations table (auto-importing from Wikidata if needed) then resolve level.
         if "location_wikidata_qid" in updates and "location_level" not in updates:
             qid = updates["location_wikidata_qid"]
             if qid:
-                cur.execute("SELECT location_type FROM locations WHERE wikidata_qid = %s", (qid,))
-                loc_row = cur.fetchone()
-                updates["location_level"] = loc_row["location_type"] if loc_row else "city"
+                updates["location_level"] = _ensure_location_exists(cur, qid)
             else:
                 updates["location_level"] = None
 
