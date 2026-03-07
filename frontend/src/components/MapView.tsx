@@ -771,38 +771,57 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
       )}
 
       {/* Border layer toggle — sits to the left of the NavigationControl */}
-      <button
-        onClick={() => setShowBorders((v) => !v)}
-        title={showBorders ? 'Hide Modern Borders' : 'Show Modern Borders'}
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 50,
-          zIndex: 10,
-          width: 29,
-          height: 29,
-          background: showBorders ? '#3366cc' : '#ffffff',
-          border: '1px solid rgba(0,0,0,0.3)',
-          borderRadius: 4,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 0,
-        }}
+      <style>{`
+        .oh-borders-btn .oh-tooltip {
+          display: none;
+          position: absolute;
+          top: 50%;
+          right: 36px;
+          transform: translateY(-50%);
+          background: rgba(20,20,20,0.9);
+          color: #fff;
+          font-size: 11px;
+          font-weight: 500;
+          white-space: nowrap;
+          padding: 4px 8px;
+          border-radius: 4px;
+          pointer-events: none;
+        }
+        .oh-borders-btn:hover .oh-tooltip { display: block; }
+      `}</style>
+      <div
+        className="oh-borders-btn"
+        style={{ position: 'absolute', top: 10, right: 50, zIndex: 10 }}
       >
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <polygon
-            points="7.5,1.5 13.5,5.5 13.5,9.5 7.5,13.5 1.5,9.5 1.5,5.5"
-            fill="none"
-            stroke={showBorders ? '#ffffff' : '#54595d'}
-            strokeWidth="1.4"
-            strokeDasharray="2.2 1.8"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+        <button
+          onClick={() => setShowBorders((v) => !v)}
+          style={{
+            width: 29,
+            height: 29,
+            background: showBorders ? '#3366cc' : '#ffffff',
+            border: '1px solid rgba(0,0,0,0.3)',
+            borderRadius: 4,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polygon
+              points="7.5,1.5 13.5,5.5 13.5,9.5 7.5,13.5 1.5,9.5 1.5,5.5"
+              fill="none"
+              stroke={showBorders ? '#ffffff' : '#54595d'}
+              strokeWidth="1.4"
+              strokeDasharray="2.2 1.8"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <span className="oh-tooltip">{showBorders ? 'Hide Modern Borders' : 'Show Modern Borders'}</span>
+      </div>
     </div>
   );
 }
