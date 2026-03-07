@@ -151,7 +151,7 @@ export function UnlocatedEventsPanel({ eventFeatures, currentDateInt, stepSize, 
           {collapsed ? (total > 0 ? `Unlocated (${total})` : 'Unlocated') : 'Unlocated Events'}
         </span>
         <span style={{ fontSize: 18, color: '#9a9a9a', lineHeight: 1 }}>
-          {collapsed ? '▸' : '▾'}
+          {collapsed ? '▴' : '▾'}
         </span>
       </div>
 
