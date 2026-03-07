@@ -316,14 +316,16 @@ def _ensure_location_exists(cur, qid: str) -> str:
         slug = f"{slug_base}-{suffix}"
         suffix += 1
 
+    wiki_url = f"https://en.wikipedia.org/wiki/{wiki_title.replace(' ', '_')}" if wiki_title else ""
+
     cur.execute(
         """
         INSERT INTO locations
-            (wikidata_qid, slug, name, wikipedia_title, location_type, lat, lng, pipeline_run)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'manual-location-import')
+            (wikidata_qid, slug, name, wikipedia_title, wikipedia_url, location_type, lat, lng, pipeline_run)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'manual-location-import')
         ON CONFLICT (wikidata_qid) DO NOTHING
         """,
-        (qid, slug, name, wiki_title, loc_type, lat, lng),
+        (qid, slug, name, wiki_title, wiki_url, loc_type, lat, lng),
     )
     return loc_type
 
