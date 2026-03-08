@@ -29,6 +29,8 @@ export interface FeaturePatch {
   // Location fields
   location_name?: string | null;
   location_wikidata_qid?: string | null;
+  // Category
+  categories?: string[];
 }
 
 /**
@@ -55,6 +57,7 @@ export interface PolityPatch {
   name?: string | null;
   capital_name?: string | null;
   capital_wikidata_qid?: string | null;
+  polity_type?: string;
 }
 
 /**

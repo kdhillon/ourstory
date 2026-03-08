@@ -1,10 +1,74 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { useTranslations } from '../lib/TranslationContext';
 import maplibregl, { Map, GeoJSONSource } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { FeatureProperties, Category } from '../types';
 import { CATEGORY_COLORS } from '../theme/categories';
 import { CATEGORY_SVGS } from '../theme/icons';
 import { encodeDate, eventDateRange, STEP_YEAR, decodeDate } from '../hooks/useTimeline';
+
+// ---------------------------------------------------------------------------
+// Territory label points — explode MultiPolygon features into ranked Points
+// so each polity shows at most MAX_LABEL_PARTS labels (largest parts first).
+// ---------------------------------------------------------------------------
+const MAX_LABEL_PARTS = 3;
+
+function ringArea(ring: number[][]): number {
+  let a = 0;
+  for (let i = 0; i < ring.length - 1; i++) {
+    a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+  }
+  return Math.abs(a / 2);
+}
+
+function ringCentroid(ring: number[][]): [number, number] {
+  const n = ring.length - 1;
+  let x = 0, y = 0;
+  for (let i = 0; i < n; i++) { x += ring[i][0]; y += ring[i][1]; }
+  return [x / n, y / n];
+}
+
+function buildLabelPoints(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
+  type Part = { area: number; centroid: [number, number]; props: Record<string, unknown> };
+  // Note: avoid `new Map()` — `Map` is shadowed by the maplibre-gl import above.
+  const byPolity: Record<string, Part[]> = {};
+  const unmatched: GeoJSON.Feature[] = [];
+
+  for (const f of features) {
+    const props = (f.properties ?? {}) as Record<string, unknown>;
+    const polityId = props.polityId as string | null;
+    const geom = f.geometry;
+    if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) continue;
+    const rings = geom.type === 'Polygon'
+      ? [(geom as GeoJSON.Polygon).coordinates]
+      : (geom as GeoJSON.MultiPolygon).coordinates;
+
+    if (!polityId) {
+      if (rings.length === 0) continue;
+      const biggest = rings.reduce((best, r) => ringArea(r[0]) > ringArea(best[0]) ? r : best, rings[0]);
+      if (!biggest[0]?.length) continue;
+      unmatched.push({ type: 'Feature', geometry: { type: 'Point', coordinates: ringCentroid(biggest[0]) }, properties: props });
+      continue;
+    }
+
+    const parts = byPolity[polityId] ?? [];
+    for (const r of rings) {
+      if (!r[0]?.length) continue;
+      parts.push({ area: ringArea(r[0]), centroid: ringCentroid(r[0]), props });
+    }
+    byPolity[polityId] = parts;
+  }
+
+  const matched: GeoJSON.Feature[] = [];
+  for (const parts of Object.values(byPolity)) {
+    parts.sort((a, b) => b.area - a.area);
+    parts.slice(0, MAX_LABEL_PARTS).forEach((p, i) => {
+      matched.push({ type: 'Feature', geometry: { type: 'Point', coordinates: p.centroid }, properties: { ...p.props, _labelRank: i + 1 } });
+    });
+  }
+
+  return [...unmatched, ...matched];
+}
 
 // Linger window: 5 steps in the current unit, capped at 3 years.
 const LINGER_STEPS = 5;
@@ -103,7 +167,8 @@ interface Props {
   currentDateInt: number;
   stepSize: number;
   activeCategories: Set<Category>;
-  activePolityCategories: Set<Category>;
+  showBorders: boolean;
+  showOtherPolities: boolean;
   onSelectFeature: (props: FeatureProperties, stack: StackInfo) => void;
   zoomRequest?: ZoomRequest | null;
   /** Fit the map to a bounding box (used when selecting a major event chip). */
@@ -175,7 +240,8 @@ interface HoveredLabel {
   y: number;
 }
 
-export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter, onMapReady, editorMode }: Props) {
+export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, showBorders, showOtherPolities, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter, onMapReady, editorMode }: Props) {
+  const translationMap = useTranslations();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const updateFilterRef = useRef<() => void>(() => {});
@@ -187,9 +253,11 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   suppressedPolityIdsRef.current = suppressedPolityIds ?? new Set<string>();
   const polityIdsWithTerritoryRef = useRef(polityIdsWithTerritory ?? new Set<string>());
   polityIdsWithTerritoryRef.current = polityIdsWithTerritory ?? new Set<string>();
-  const [showBorders, setShowBorders] = useState(false);
   const showBordersRef = useRef(showBorders);
   showBordersRef.current = showBorders;
+  const [showModernBorders, setShowModernBorders] = useState(false);
+  const showModernBordersRef = useRef(showModernBorders);
+  showModernBordersRef.current = showModernBorders;
   const [hoveredLabel, setHoveredLabel] = useState<HoveredLabel | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onUnlinkPolygonRef = useRef(onUnlinkPolygon);
@@ -274,6 +342,12 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
       });
+      // Separate point source for territory labels — one point per polygon part,
+      // ranked by area so we can limit each polity to its 3 largest parts.
+      map.addSource('territory-labels', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
       map.addLayer({
         id: 'fills-territory',
         type: 'fill',
@@ -293,11 +367,16 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
           'line-opacity': 0.6,
         },
       });
-      // Territory name at the visual centroid of each polygon
+      // Territory labels — sourced from territory-labels (exploded points, ranked by area).
+      // Each polity shows at most 3 labels (its 3 largest polygon parts).
       map.addLayer({
         id: 'labels-territory',
         type: 'symbol',
-        source: 'territories',
+        source: 'territory-labels',
+        filter: ['any',
+          ['!', ['has', '_labelRank']],        // unmatched — always label
+          ['<=', ['get', '_labelRank'], 3],     // matched — top 3 largest parts only
+        ],
         layout: {
           'text-field': ['coalesce', ['get', 'polityName'], ['get', 'hbName']],
           'text-size': 12,
@@ -388,8 +467,8 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         }
       });
 
-      // Apply initial border visibility from ref (in case toggle was hit before load)
-      if (!showBordersRef.current) applyBorderVisibility(map, false);
+      // Apply initial modern border visibility from ref (in case toggle was hit before load)
+      if (!showModernBordersRef.current) applyBorderVisibility(map, false);
 
       for (const layer of ['circles-major', 'circles-minor', 'events-major', 'stars-polity', 'fills-territory', 'labels-territory']) {
         map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -434,8 +513,8 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
-    applyBorderVisibility(map, showBorders);
-  }, [showBorders]);
+    applyBorderVisibility(map, showModernBorders);
+  }, [showModernBorders]);
 
   const onSelectRef = useRef(onSelectFeature);
   onSelectRef.current = onSelectFeature;
@@ -557,8 +636,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         if (p.yearStart == null) return [];
         if (p.yearEnd == null && !STILL_ACTIVE_TYPES.has(p.polityType ?? '')) return [];
 
-        const catOk = p.categories.some((c) => activePolityCategories.has(c));
-        if (!catOk) return [];
+        if (!showOtherPolities) return [];
 
         const _color = CATEGORY_COLORS[p.primaryCategory] ?? '#9E9E9E';
 
@@ -590,7 +668,9 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         const isUnlinkedPrincipality = p.polityType === 'principality' && !hasTerritory.has(p.id);
         const _minZoom = isUnlinkedPrincipality ? Math.max(baseZoom, UNLINKED_PRINCIPALITY_MIN_ZOOM) : baseZoom;
 
-        return [{ ...f, properties: { ...f.properties, _opacity: 1.0, _labelOpacity: 1.0, _color, _minZoom } }];
+        const translatedTitle = (translationMap && p.wikidataQid) ? translationMap[p.wikidataQid] : undefined;
+        const titleProps = translatedTitle ? { title: translatedTitle } : {};
+        return [{ ...f, properties: { ...f.properties, ...titleProps, _opacity: 1.0, _labelOpacity: 1.0, _color, _minZoom } }];
       }
 
       const catOk = p.categories.some((c) => activeCategories.has(c));
@@ -659,6 +739,17 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
     // Territory fill layer — time-filter by yearStart/yearEnd
     const terrSource = map.getSource('territories') as GeoJSONSource | undefined;
     if (terrSource) {
+      // Build polityId (UUID) → wikidataQid lookup for territory label translation
+      const polityIdToQid: Record<string, string> = {};
+      if (translationMap && Object.keys(translationMap).length > 0) {
+        for (const f of geojson.features) {
+          const p = f.properties as FeatureProperties;
+          if (p.featureType === 'polity' && p.id && p.wikidataQid) {
+            polityIdToQid[p.id] = p.wikidataQid;
+          }
+        }
+      }
+
       const allTerritories = territoriesGeojsonRef.current?.features ?? [];
       const visibleTerritories = allTerritories.flatMap((f) => {
         const p = f.properties as {
@@ -669,11 +760,16 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         };
         if (p.yearStart > currentYear) return [];
         if (p.yearEnd !== null && currentYear > p.yearEnd) return [];
-        // Apply polity category filter for linked territories; unlinked always show
-        if (p.polityType && !activePolityCategories.has(p.polityType as Category)) return [];
+        if (!showBorders) return [];
         // If polity is a hidden modern nation, render territory as unlinked (gray, no name)
         if (p.polityId && hiddenNations?.has(p.polityId)) {
           return [{ ...f, properties: { ...f.properties, polityId: null, polityName: null, politySlug: null, polityType: null } }];
+        }
+        // Apply translated polity name if available
+        const qid = p.polityId ? polityIdToQid[p.polityId] : null;
+        const translatedName = (qid && translationMap) ? translationMap[qid] : null;
+        if (translatedName) {
+          return [{ ...f, properties: { ...f.properties, polityName: translatedName } }];
         }
         // Note: suppressedPolityIds is intentionally NOT applied to territory polygons.
         // Capital-conflict suppression is only for polity marker dots — territory shapes
@@ -681,8 +777,13 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         return [f];
       });
       terrSource.setData({ type: 'FeatureCollection', features: visibleTerritories });
+
+      const labelSource = map.getSource('territory-labels') as GeoJSONSource | undefined;
+      if (labelSource) {
+        labelSource.setData({ type: 'FeatureCollection', features: buildLabelPoints(visibleTerritories) });
+      }
     }
-  }, [geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, activePolityCategories, hiddenNations, majorEventFilter]);
+  }, [geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, showBorders, showOtherPolities, hiddenNations, majorEventFilter, translationMap]);
 
   // Keep the ref current so the map.on('load') callback always invokes the latest version
   updateFilterRef.current = updateFilter;
@@ -770,7 +871,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         </button>
       )}
 
-      {/* Border layer toggle — sits to the left of the NavigationControl */}
+      {/* Modern border layer toggle — sits to the left of the NavigationControl */}
       <style>{`
         .oh-borders-btn .oh-tooltip {
           display: none;
@@ -794,11 +895,11 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         style={{ position: 'absolute', top: 10, right: 50, zIndex: 10 }}
       >
         <button
-          onClick={() => setShowBorders((v) => !v)}
+          onClick={() => setShowModernBorders((v) => !v)}
           style={{
             width: 29,
             height: 29,
-            background: showBorders ? '#3366cc' : '#ffffff',
+            background: showModernBorders ? '#3366cc' : '#ffffff',
             border: '1px solid rgba(0,0,0,0.3)',
             borderRadius: 4,
             boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
@@ -813,14 +914,14 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
             <polygon
               points="7.5,1.5 13.5,5.5 13.5,9.5 7.5,13.5 1.5,9.5 1.5,5.5"
               fill="none"
-              stroke={showBorders ? '#ffffff' : '#54595d'}
+              stroke={showModernBorders ? '#ffffff' : '#54595d'}
               strokeWidth="1.4"
               strokeDasharray="2.2 1.8"
               strokeLinejoin="round"
             />
           </svg>
         </button>
-        <span className="oh-tooltip">{showBorders ? 'Hide Modern Borders' : 'Show Modern Borders'}</span>
+        <span className="oh-tooltip">{showModernBorders ? 'Hide Modern Borders' : 'Show Modern Borders'}</span>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from '../lib/TranslationContext';
 import type { FeatureProperties, Category } from '../types';
 import { CATEGORY_COLORS } from '../theme/categories';
 import { encodeDate, eventDateRange, STEP_YEAR } from '../hooks/useTimeline';
@@ -25,6 +26,7 @@ interface Props {
 }
 
 function EventRow({ props, onSelect }: { props: FeatureProperties; onSelect: () => void }) {
+  const translationMap = useTranslations();
   const [hovered, setHovered] = useState(false);
   const color = CATEGORY_COLORS[props.primaryCategory as Category] ?? '#9E9E9E';
   return (
@@ -55,7 +57,7 @@ function EventRow({ props, onSelect }: { props: FeatureProperties; onSelect: () 
         marginTop: 4,
       }} />
       <span style={{ fontSize: 13, color: '#202122', lineHeight: 1.4 }}>
-        {props.title}
+        {(props.wikidataQid && translationMap?.[props.wikidataQid]) || props.title}
       </span>
     </button>
   );

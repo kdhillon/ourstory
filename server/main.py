@@ -337,7 +337,7 @@ _ALLOWED_FIELDS = {
     "year_start", "month_start", "day_start",
     "year_end", "month_end", "day_end",
     "location_name", "location_wikidata_qid", "location_level",
-    "manually_hidden",
+    "manually_hidden", "categories",
 }
 
 

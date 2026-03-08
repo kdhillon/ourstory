@@ -108,7 +108,7 @@ def fetch_sparql_qids(
         WDQS_ENDPOINT,
         params={"query": query, "format": "json"},
         headers={"Accept": "application/sparql-results+json"},
-        timeout=55,  # WDQS hard limit is 60s; leave a margin
+        timeout=(10, 55),  # (connect, read) — read timeout enforces WDQS 60s hard limit
     )
     resp.raise_for_status()
     data = resp.json()
@@ -637,7 +637,6 @@ def print_coverage(events: list[dict], loaded: int, skipped: int) -> None:
     has_summary = sum(1 for e in events if e.get("wikipedia_summary"))
     has_cat     = sum(1 for e in events if e.get("categories"))
     needs_loc   = sum(1 for e in events if e.get("_needs_location"))
-    needs_cat   = sum(1 for e in events if e.get("_needs_llm_category"))
 
     print("\n" + "=" * 60)
     print("RUN 1 COVERAGE REPORT")
@@ -652,10 +651,6 @@ def print_coverage(events: list[dict], loaded: int, skipped: int) -> None:
     print()
     print(f"  Loaded to Postgres:      {loaded}")
     print(f"  Skipped (needs enrich):  {skipped}")
-    print()
-    print("  Downstream enrichment needed:")
-    print(f"    LLM location (Bucket 3):    {needs_loc}")
-    print(f"    LLM category assignment:    {needs_cat}")
     print("=" * 60)
 
 
@@ -674,14 +669,6 @@ def main():
         help="Extract and print coverage but do not write to Postgres"
     )
     parser.add_argument(
-        "--quality-check", action="store_true",
-        help="Run LLM quality check on newly loaded records after the pipeline completes"
-    )
-    parser.add_argument(
-        "--quality-check-limit", type=int, default=50,
-        help="Number of recent records to check with the quality checker (default: 50)"
-    )
-    parser.add_argument(
         "--max-year", type=int, default=2015,
         help="Exclude events dated after this year (default: 2015)"
     )
@@ -693,29 +680,43 @@ def main():
         "--post-process", action="store_true",
         help="After loading, run cleanup + backfills + GeoJSON export automatically"
     )
+    parser.add_argument(
+        "--qid-file", type=str, default=None,
+        help="Skip SPARQL; load QIDs directly from a file (one QID per line). "
+             "Useful for curated lists (e.g. inventions from Wikipedia categories)."
+    )
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
-    # Step 1: SPARQL → QIDs
+    # Step 1: SPARQL → QIDs  (or load from file)
     # ------------------------------------------------------------------
-    print(f"\n[Step 1] Fetching QIDs via SPARQL ({len(SPARQL_CATEGORIES)} categories, up to {args.limit} each)...")
     all_qids: list[str] = []
     seen: set[str] = set()
 
-    for label, class_qid in SPARQL_CATEGORIES:
-        print(f"  Querying {label} (wd:{class_qid})... ", end="", flush=True)
-        try:
-            qids = fetch_sparql_qids(class_qid, args.limit, max_year=args.max_year, min_year=args.min_year)
-            # Deduplicate across categories
-            new_qids = [q for q in qids if q not in seen]
-            seen.update(new_qids)
-            all_qids.extend(new_qids)
-            print(f"{len(new_qids)} QIDs")
-        except Exception as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-        time.sleep(1.0)  # polite delay between SPARQL queries
-
-    print(f"  Total unique QIDs: {len(all_qids)}")
+    if args.qid_file:
+        print(f"\n[Step 1] Loading QIDs from file: {args.qid_file}")
+        with open(args.qid_file) as f:
+            for line in f:
+                qid = line.strip()
+                if qid and qid not in seen:
+                    seen.add(qid)
+                    all_qids.append(qid)
+        print(f"  Loaded {len(all_qids)} unique QIDs (skipping SPARQL)")
+    else:
+        print(f"\n[Step 1] Fetching QIDs via SPARQL ({len(SPARQL_CATEGORIES)} categories, up to {args.limit} each)...")
+        for label, class_qid in SPARQL_CATEGORIES:
+            print(f"  Querying {label} (wd:{class_qid})... ", end="", flush=True)
+            try:
+                qids = fetch_sparql_qids(class_qid, args.limit, max_year=args.max_year, min_year=args.min_year)
+                # Deduplicate across categories
+                new_qids = [q for q in qids if q not in seen]
+                seen.update(new_qids)
+                all_qids.extend(new_qids)
+                print(f"{len(new_qids)} QIDs")
+            except Exception as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+            time.sleep(1.0)  # polite delay between SPARQL queries
+        print(f"  Total unique QIDs: {len(all_qids)}")
 
     # ------------------------------------------------------------------
     # Step 2: Wikidata API batch fetch
@@ -822,23 +823,6 @@ def main():
             print("  python3 -m pipeline.post_process")
             print("  (or re-run with --post-process to do this automatically)")
 
-    # ------------------------------------------------------------------
-    # Optional: LLM quality check on newly loaded records
-    # ------------------------------------------------------------------
-    if args.quality_check and not args.skip_load and loaded > 0:
-        import subprocess
-        print(f"\n[Quality Check] Running LLM quality check on {args.quality_check_limit} recent records...")
-        result = subprocess.run(
-            [
-                sys.executable, "scripts/quality-check.py",
-                "--limit", str(args.quality_check_limit),
-                "--no-fail",  # Don't abort the pipeline; just report
-            ],
-            capture_output=False,
-        )
-        if result.returncode != 0:
-            print("\nQuality check found high-confidence issues. Review before running more batches.",
-                  file=sys.stderr)
 
 
 if __name__ == "__main__":

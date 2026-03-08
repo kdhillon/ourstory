@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { checkLogin } from './lib/wikidataApi';
+import { checkLogin, fetchEntityTranslations } from './lib/wikidataApi';
+import { TranslationContext } from './lib/TranslationContext';
 import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, fetchManualPolities, fetchHiddenFeatures, setFeatureHidden } from './lib/api';
 import { MapView } from './components/MapView';
 import { TerritoryEditor } from './editor/TerritoryEditor';
@@ -97,9 +98,8 @@ export default function App() {
   const [activeCategories, setActiveCategories] = useState<Set<Category>>(
     new Set(EVENT_CATEGORIES as Category[]),
   );
-  const [activePolityCategories, setActivePolityCategories] = useState<Set<Category>>(
-    new Set(POLITY_CATEGORIES as Category[]),
-  );
+  const [showBorders, setShowBorders] = useState(true);
+  const [showOtherPolities, setShowOtherPolities] = useState(true);
   const [zoomRequest, setZoomRequest] = useState<ZoomRequest | null>(null);
   const zoomIdRef = useRef(0);
   const [wikiAuth, setWikiAuth] = useState<string | null>(null);
@@ -123,6 +123,14 @@ export default function App() {
   // Territory editor
   const [editorMode, setEditorMode] = useState(false);
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
+  // Wikipedia language + polity label translations
+  const [selectedLang, setSelectedLang] = useState(() => localStorage.getItem('oh_lang') ?? 'en');
+  const [translationMap, setTranslationMap] = useState<Record<string, string>>({});
+
+  const handleLangChange = useCallback((lang: string) => {
+    setSelectedLang(lang);
+    localStorage.setItem('oh_lang', lang);
+  }, []);
 
   const territoriesFeatureCollection = useMemo(
     (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: territoryFeatures }),
@@ -213,6 +221,29 @@ export default function App() {
     return { type: 'FeatureCollection', features };
   }, [staticFeatures, eventFeatures, overrideMap, hiddenFeatureIds]);
 
+  // Fetch polity name translations whenever language or polity data changes
+  useEffect(() => {
+    if (selectedLang === 'en') { setTranslationMap({}); return; }
+    const seen = new Set<string>();
+    for (const f of geojson.features) {
+      const p = f.properties as { featureType?: string; wikidataQid?: string; partOfResolved?: string | Array<{ qid?: string }> };
+      if (p.wikidataQid) seen.add(p.wikidataQid);
+      // Include partOfResolved QIDs for major-event chip translations
+      if (p.partOfResolved) {
+        const resolved = typeof p.partOfResolved === 'string'
+          ? (JSON.parse(p.partOfResolved) as Array<{ qid?: string }>)
+          : p.partOfResolved;
+        for (const r of resolved) { if (r.qid) seen.add(r.qid); }
+      }
+    }
+    const qids = [...seen];
+    let cancelled = false;
+    fetchEntityTranslations(qids, selectedLang).then((map) => {
+      if (!cancelled) setTranslationMap(map);
+    });
+    return () => { cancelled = true; };
+  }, [selectedLang, geojson]);
+
   useEffect(() => {
     checkLogin().then((username) => setWikiAuth(username));
   }, []);
@@ -301,14 +332,8 @@ export default function App() {
     });
   }, []);
 
-  const handleTogglePolityCategory = useCallback((cat: Category) => {
-    setActivePolityCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
-    });
-  }, []);
+  const handleToggleBorders = useCallback(() => setShowBorders((v) => !v), []);
+  const handleToggleOtherPolities = useCallback(() => setShowOtherPolities((v) => !v), []);
 
   const handleSelectFeature = useCallback((props: FeatureProperties, stackInfo: StackInfo) => {
     setSelectedFeature(props);
@@ -416,19 +441,24 @@ export default function App() {
   }
 
   return (
+    <TranslationContext.Provider value={translationMap}>
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#f8f9fa' }}>
       <CategoryFilter
         activeCategories={activeCategories}
         onToggle={handleToggleCategory}
-        activePolityCategories={activePolityCategories}
-        onTogglePolity={handleTogglePolityCategory}
+        showBorders={showBorders}
+        onToggleBorders={handleToggleBorders}
+        showOtherPolities={showOtherPolities}
+        onToggleOtherPolities={handleToggleOtherPolities}
         onOpenAbout={() => navigate('/about')}
         onOpenData={() => navigate('/data')}
         onEditTerritory={() => setEditorMode((v) => !v)}
         editorMode={editorMode}
+        selectedLang={selectedLang}
+        onLangChange={handleLangChange}
       />
 
-      <div style={{ position: 'absolute', inset: `104px 0 ${TIMELINE_BAR_HEIGHT + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
+      <div style={{ position: 'absolute', inset: `69px 0 ${TIMELINE_BAR_HEIGHT + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
         <DataOverlay
           windowInfo={windowInfo}
           isLoading={eventsLoading}
@@ -455,7 +485,8 @@ export default function App() {
           currentDateInt={timeline.currentDateInt}
           stepSize={timeline.stepSize}
           activeCategories={activeCategories}
-          activePolityCategories={activePolityCategories}
+          showBorders={showBorders}
+          showOtherPolities={showOtherPolities}
           onSelectFeature={handleSelectFeature}
           zoomRequest={zoomRequest}
           fitBoundsRequest={fitBoundsRequest}
@@ -482,6 +513,7 @@ export default function App() {
         hiddenNations={hiddenNations}
         onToggleHiddenNation={handleToggleHiddenNation}
         onHideFeature={handleHideFeature}
+        selectedLang={selectedLang}
       />
 
       <MajorEventsPanel
@@ -550,5 +582,6 @@ export default function App() {
         />
       )}
     </div>
+    </TranslationContext.Provider>
   );
 }

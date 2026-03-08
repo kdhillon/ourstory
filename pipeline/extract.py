@@ -297,7 +297,64 @@ WIKIDATA_TO_CATEGORY: dict[str, Optional[str]] = {
     "Q217024":  None,          # leap year starting on Monday and ending on Tuesday — generic/excluded
     "Q217026":  None,          # leap year starting on Saturday and ending on Sunday — generic/excluded
 
-    # Generic fallbacks — needs LLM category assignment
+    # Science / Invention / Discovery
+    "Q12579633": "science",      # invention (direct tag)
+    "Q8366":     "science",      # algorithm
+    "Q9143":     "science",      # programming language
+    "Q15836568": "science",      # computer network protocol
+    "Q235557":   "science",      # file format
+    "Q39546":    "science",      # tool (physical)
+    "Q2695280":  "science",      # technique
+
+    # Politics — additional
+    "Q49776":    "politics",     # strike (labor)
+    "Q133311":   "politics",     # strike action (alt)
+    "Q1185865":  "politics",     # Democratic National Convention
+    "Q361909":   "politics",     # Republican National Convention
+    "Q28966115": "politics",     # G7 summit
+    "Q15280243": "politics",     # mayoral election
+    "Q290178":   "politics",     # economic crisis
+    "Q2601792":  "politics",     # cabinet formation
+    "Q14946528": None,           # conflation — abstract, exclude
+    "Q20988497": None,           # parliamentary term — generic, exclude
+    "Q3251043":  None,           # legislative term — generic, exclude
+
+    # Disaster — additional
+    "Q486775":   "politics",     # lynching
+    "Q898712":   "politics",     # aircraft hijacking
+    "Q21480300": "politics",     # mass shooting
+    "Q473853":   "politics",     # school shooting
+    "Q2696963":  "disaster",     # tornado outbreak
+    "Q476807":   "politics",     # raid
+
+    # Culture — additional
+    "Q172754":   "culture",      # world's fair (correct QID)
+    "Q667276":   "culture",      # art exhibition (correct QID)
+    "Q2558684":  "culture",      # world day
+    "Q3001152":  None,           # movement in cinema — too generic, exclude
+
+    # Sport — additional
+    "Q1366722":  "sport",        # final (competition)
+    "Q135976384":"sport",        # Summer Olympic Games edition
+    "Q137592217":"sport",        # Winter Olympic Games edition
+
+    # Exclude — noise / calendar objects
+    "Q47018478": None,           # calendar month of a given year
+    "Q66010119": None, "Q66010126": None, "Q66010132": None,  # month starting on X
+    "Q66010139": None, "Q66010148": None, "Q66010153": None,
+    "Q108": None, "Q109": None, "Q110": None, "Q118": None,   # Jan–Apr
+    "Q119": None, "Q120": None, "Q121": None, "Q122": None,   # May–Aug
+    "Q123": None, "Q124": None, "Q125": None, "Q126": None,   # Sep–Dec
+    "Q11424":    None,           # film — not a historical event
+    "Q1259759":  None,           # miniseries
+    "Q5398426":  None,           # television series
+    "Q63952888": None,           # anime television series
+    "Q506240":   None,           # television film
+    "Q21198342": None,           # manga series
+    "Q15296520": None,           # manga magazine
+    "Q867242":   None,           # comics anthology
+
+    # Generic fallbacks — exclude
     "Q13418847": None,           # historical event (generic)
     "Q1190554":  None,           # occurrence (generic)
     "Q3249551":  None,           # process (very generic)
@@ -1263,10 +1320,13 @@ def extract_event(entity: dict) -> dict:
     )
     slug = make_slug(wikipedia_title) if wikipedia_title else None
 
-    # Dates — prefer P585 (point in time), fall back to P580/P582 (start/end)
+    # Dates — prefer P585 (point in time), fall back to P580/P582 (start/end),
+    # then P575 (time of discovery/invention), then P571 (inception)
     point_time, point_prec = get_time_value(claims, "P585")
     start_time, start_prec = get_time_value(claims, "P580")
     end_time,   end_prec   = get_time_value(claims, "P582")
+    discovery_time, discovery_prec = get_time_value(claims, "P575")
+    inception_time, inception_prec = get_time_value(claims, "P571")
 
     if point_time:
         year_start, month_start, day_start, date_is_fuzzy = parse_wikidata_time(point_time, point_prec)
@@ -1277,6 +1337,14 @@ def extract_event(entity: dict) -> dict:
             year_end, month_end, day_end, _ = parse_wikidata_time(end_time, end_prec)
         else:
             year_end, month_end, day_end = None, None, None
+    elif discovery_time:
+        # P575 = time of discovery or invention — most common date prop for inventions
+        year_start, month_start, day_start, date_is_fuzzy = parse_wikidata_time(discovery_time, discovery_prec)
+        year_end, month_end, day_end = None, None, None
+    elif inception_time:
+        # P571 = inception/founding date — fallback for inventions and organisations
+        year_start, month_start, day_start, date_is_fuzzy = parse_wikidata_time(inception_time, inception_prec)
+        year_end, month_end, day_end = None, None, None
     else:
         year_start, month_start, day_start, date_is_fuzzy = None, None, None, True
         year_end, month_end, day_end = None, None, None

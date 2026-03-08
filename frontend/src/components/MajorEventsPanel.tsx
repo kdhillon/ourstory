@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useEffect } from 'react';
+import { useTranslations } from '../lib/TranslationContext';
 import type { FeatureProperties } from '../types';
 import { eventDateRange, STEP_YEAR } from '../hooks/useTimeline';
 
@@ -155,6 +156,7 @@ export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigate
 }
 
 function Chip({ ev, selected, onClick }: { ev: MajorEvent; selected: boolean; onClick: (ev: MajorEvent) => void }) {
+  const translationMap = useTranslations();
   const bg       = selected ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.06)';
   const border   = selected ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.11)';
   const color    = selected ? '#0c1117'                : 'rgba(255,255,255,0.85)';
@@ -190,7 +192,7 @@ function Chip({ ev, selected, onClick }: { ev: MajorEvent; selected: boolean; on
         e.currentTarget.style.borderColor = border;
       }}
     >
-      {ev.title}
+      {translationMap?.[ev.qid] ?? ev.title}
       <span style={{
         fontSize: 11,
         fontWeight: 600,

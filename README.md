@@ -18,22 +18,22 @@ This project is under active development. The core map, data pipeline, and deplo
 - **Events** — Lucide SVG icon markers per category (battle, war, politics, religion, disaster, exploration, science, culture)
 - **Locations** — cities, regions, and countries shown at appropriate zoom levels
 - **Polities** — time-bounded sovereign entities (empires, kingdoms, republics, colonies, viceroyalties, etc.) shown as markers at their capitals
-- **Territory polygons** — shaded boundary overlays from the historical-basemaps dataset, linked to polities via name matching; displayed per snapshot year and interpolated between snapshots
+- **Territory polygons** — shaded boundary overlays from the historical-basemaps dataset, linked to polities; stored as rolling date ranges (year_start/year_end) rather than discrete snapshots
 - **Territory mapping UI** — users can link unmatched (grey) territories to polities by clicking and searching
 - **Category filter** — two-row bar for toggling event/location/polity types
 - **Info panel** — Wikipedia summary, categories, date range, and location for any clicked feature
 - **In-app Wikidata editing** — dates and locations can be corrected in-app and submitted **directly to Wikidata** (requires a Wikimedia account)
 - **Data pipeline** — Wikidata SPARQL + Wikipedia API → PostgreSQL (37+ active event categories using transitive P279*)
 - **Polity pipeline** — separate pipeline for sovereign political entities (14 SPARQL categories including colonies, viceroyalties, khanates, regencies)
-- **Post-processing** — cleanup, sitelinks backfill, GeoJSON export, LLM category assignment
+- **Post-processing** — cleanup, rule-based P31 category assignment, sitelinks backfill, GeoJSON export
 - **Event fade-out** — single-year events fade out over a 10-year window rather than snapping off
 - **Zoom filtering** — events filtered by importance (`sitelinks_count`) at low zoom levels
 - **Major events panel** — bottom bar showing significant events in the current time window
 - **Deployment** — frontend + backend on [Railway](https://railway.app), auto-migrations on deploy
-- **Data loaded** — 16,592 events · 4,034 locations · 9,852 polities (incl. ancient empires) · coverage: 1600–2025
+- **Data loaded** — 22,058 events · 6,416 locations · 9,854 polities (incl. ancient empires) · coverage: 601 BCE–2025
 
 ### To Do
-- **Data coverage** — pipeline has only been run for 1770–1820; needs to expand across all of history
+- **Data coverage** — expand beyond current 601 BCE–2025 coverage; fill gaps in ancient and medieval periods
 - **Territory boundary editing** — draw/correct polygon shapes and contribute back to the historical-basemaps project as new snapshots
 - **Location dates** — `founded_year` / `dissolved_year` mostly NULL; needs Wikidata backfill
 - **Polity succession** — `preceded_by` / `succeeded_by` chain is stored but not surfaced in the UI
@@ -107,20 +107,12 @@ python3 scripts/backfill-sitelinks.py
 python3 scripts/export_geojson.py
 ```
 
-Optional LLM passes (requires `ANTHROPIC_API_KEY`):
-
-```bash
-python3 scripts/fix-empty-categories.py   # assign missing categories
-python3 scripts/quality-check.py --no-fail  # audit data quality
-```
-
 ### 5. Import territory polygons (optional)
 
-Territory boundary data comes from [historical-basemaps](https://github.com/aourednik/historical-basemaps). Import a snapshot:
+Territory boundary data comes from [historical-basemaps](https://github.com/aourednik/historical-basemaps). The rolling territory migration script merges all snapshots into continuous date ranges:
 
 ```bash
-python3 scripts/import-territories.py --snapshot 1800
-python3 scripts/expand-territory-polities.py --snapshot 1800
+python3 scripts/migrate-to-rolling-territories.py
 ```
 
 ### 6. Run the frontend
@@ -152,7 +144,7 @@ All historical data flows from Wikidata + Wikipedia through the pipeline into Po
 | Historical event | `events` | `'event'` | Battles, treaties, disasters, etc. |
 | Location | `locations` | `'city'` / `'region'` / `'country'` | Geographic anchors used to pin events |
 | Polity | `polities` | `'polity'` | Time-bounded sovereign entities (empires, kingdoms, colonies, etc.) |
-| Territory polygon | `snapshot_polygons` | — (served via `/api/territories`) | Boundary polygons from historical-basemaps, linked to polities |
+| Territory polygon | `territories` | — (served via `/api/territories`) | Boundary polygons from historical-basemaps, linked to polities |
 
 ### `events` table
 
@@ -183,15 +175,13 @@ Time-bounded sovereign political entities — historically specific ("French Fir
 | `preceded_by_qid` / `succeeded_by_qid` | TEXT | Succession chain |
 | `sovereign_qids` | TEXT[] | Parent polity QIDs |
 
-### Territory tables
+### Territory table
 
-Territory polygons are stored across three tables:
+Territory polygons are stored in a single `territories` table as rolling date ranges:
 
-- **`territory_snapshots`** — tracks which snapshot years have been imported (e.g. 1783, 1800, 1815)
-- **`snapshot_polygons`** — one row per polygon per snapshot, with the GeoJSON boundary stored as JSONB and a `polity_id` FK (nullable for unmatched territories)
-- **`territory_name_mappings`** — persistent `(hb_name, snapshot_year) → polity_id` lookup, built by auto-matching and user corrections
+- **`territories`** — one row per unique polygon geometry, with explicit `year_start`/`year_end` columns, a `polity_id` FK (nullable for unmatched territories), and `explicitly_unlinked` flag. Adjacent snapshots with identical geometry are merged into a single row rather than stored separately.
 
-Territory data comes from [aourednik/historical-basemaps](https://github.com/aourednik/historical-basemaps) (GPL-3.0), which provides 46 hand-curated snapshots spanning 100,000 BCE → 2010 CE.
+Territory data comes from [aourednik/historical-basemaps](https://github.com/aourednik/historical-basemaps) (GPL-3.0), which provides 53 hand-curated snapshots spanning 100,000 BCE → 2010 CE.
 
 ### Location resolution (events → map coordinates)
 

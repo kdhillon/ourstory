@@ -1,5 +1,5 @@
 {
-  "description": "Wikidata P31 class QIDs to pull from SPARQL. Each active entry fetches up to --limit events per pipeline run. Wikipedia category links show the editorial taxonomy that maps to each class. QIDs are validated via scripts/discover-categories.py — run it to check counts and find new candidates.",
+  "description": "Wikidata P31 class QIDs to pull from SPARQL. Each active entry fetches up to --limit events per pipeline run. Wikipedia category links show the editorial taxonomy that maps to each class. QIDs are validated via scripts/discover-categories.py \u2014 run it to check counts and find new candidates.",
   "last_updated": "2026-03-04",
   "categories": [
     {
@@ -14,8 +14,8 @@
     {
       "label": "coups",
       "class_qid": "Q45382",
-      "wiki_category": "Category:Coups d'état",
-      "wikidata_label": "coup d'état",
+      "wiki_category": "Category:Coups d'\u00e9tat",
+      "wikidata_label": "coup d'\u00e9tat",
       "notes": "Not always a P279* subclass of Q180684 in Wikidata, so needs its own entry",
       "last_count": 617,
       "active": true
@@ -79,7 +79,7 @@
       "class_qid": "Q3839081",
       "wiki_category": "Category:Disasters",
       "wikidata_label": "disaster",
-      "notes": "P301 from Category:Disasters. Broader than Q8065 (natural disaster) — covers industrial, man-made, and natural events.",
+      "notes": "P301 from Category:Disasters. Broader than Q8065 (natural disaster) \u2014 covers industrial, man-made, and natural events.",
       "last_count": 7255,
       "active": true
     },
@@ -169,7 +169,7 @@
       "class_qid": "Q208251",
       "wiki_category": "Category:Declarations of independence",
       "wikidata_label": "declaration of independence",
-      "notes": "Captures national independence declarations — Haiti (1804), USA (1776), etc. Not reliably captured under revolutions or conflicts.",
+      "notes": "Captures national independence declarations \u2014 Haiti (1804), USA (1776), etc. Not reliably captured under revolutions or conflicts.",
       "last_count": null,
       "active": true
     },
@@ -182,7 +182,6 @@
       "last_count": 20,
       "active": true
     },
-
     {
       "label": "scientific discoveries",
       "class_qid": "Q2678658",
@@ -197,9 +196,9 @@
       "class_qid": "Q1318295",
       "wiki_category": "Category:Astronomical discoveries",
       "wikidata_label": "astronomical discovery",
-      "notes": "Discovery events for comets, asteroids, planets, moons. Wikidata items often use this specific class without the broader Q2678658 parent, so listed separately for full coverage.",
+      "notes": "Discovery events for comets, asteroids, planets, moons. Wikidata items often use this specific class without the broader Q2678658 parent, so listed separately for full coverage. [disabled: P279* traversal returns huge intermediate result, hangs 40+ min]",
       "last_count": null,
-      "active": true
+      "active": false
     },
     {
       "label": "archaeological discoveries",
@@ -210,7 +209,6 @@
       "last_count": null,
       "active": true
     },
-
     {
       "label": "protests",
       "class_qid": "Q175482",
@@ -243,7 +241,7 @@
       "class_qid": "Q625994",
       "wiki_category": "Category:International conferences",
       "wikidata_label": "international conference",
-      "notes": "Diplomatic congresses and summits: Congress of Vienna (1814–15), Peace of Westphalia (1648), Congress of Rastatt (1798), Berlin Conference (1884).",
+      "notes": "Diplomatic congresses and summits: Congress of Vienna (1814\u201315), Peace of Westphalia (1648), Congress of Rastatt (1798), Berlin Conference (1884). [disabled: P279* traversal hangs WDQS]",
       "last_count": null,
       "active": true
     },
@@ -265,7 +263,6 @@
       "last_count": null,
       "active": true
     },
-
     {
       "label": "canonizations",
       "class_qid": "Q45469",
@@ -307,39 +304,37 @@
       "class_qid": "Q213363",
       "wiki_category": "Category:Pilgrimages",
       "wikidata_label": "pilgrimage",
-      "notes": "Major historical pilgrimages: Hajj milestones, Canterbury, Santiago de Compostela routes. Bridges religion and culture.",
+      "notes": "Major historical pilgrimages: Hajj milestones, Canterbury, Santiago de Compostela routes. Bridges religion and culture. [disabled: 108k QIDs mostly Hajj performances, takes hours to download]",
       "last_count": null,
-      "active": true
+      "active": false
     },
-
     {
       "label": "art exhibitions",
-      "class_qid": "Q464980",
+      "class_qid": "Q667276",
       "wiki_category": "Category:Art exhibitions",
       "wikidata_label": "art exhibition",
-      "notes": "Gallery and museum exhibitions: Royal Academy of Arts annual shows, Paris Salon, Impressionist exhibitions. Well-tagged in Wikidata.",
-      "last_count": null,
+      "notes": "Gallery and museum exhibitions: Royal Academy of Arts annual shows, Paris Salon, Impressionist exhibitions. [Fixed: was Q464980=exhibition (too broad). Correct QID Q667276=art exhibition. Direct P31 returns 451 items.]",
+      "last_count": 451,
       "active": true
     },
     {
       "label": "world's fairs",
-      "class_qid": "Q188686",
+      "class_qid": "Q172754",
       "wiki_category": "Category:World's fairs",
       "wikidata_label": "world's fair",
-      "notes": "International expositions: Crystal Palace (1851), Paris Exposition Universelle, Chicago World's Fair. First major fair is 1851 so no results before that.",
-      "last_count": null,
+      "notes": "International expositions: Crystal Palace (1851), Paris Exposition Universelle, Chicago World's Fair, Expo 67. First major fair 1851 so no results before that. [Fixed: was using Q188686=military occupation by mistake. Correct QID is Q172754=world's fair]",
+      "last_count": 119,
       "active": true
     },
     {
       "label": "olympic games",
-      "class_qid": "Q5389",
+      "class_qid": "Q135976384",
       "wiki_category": "Category:Olympic Games",
-      "wikidata_label": "Olympic Games",
-      "notes": "Ancient Olympics (776 BCE–393 CE) and modern Olympics (1896+). Each edition is a separate Wikidata item with P31=Q5389.",
-      "last_count": null,
+      "wikidata_label": "Summer Olympic Games edition",
+      "notes": "Modern Summer Olympics (1896+). Each edition is a separate Wikidata item. [Fixed: was Q5389=Olympic Games (abstract concept, 0 direct P31 hits). Use Q135976384=Summer Olympic Games edition. Winter Olympics use Q137592217 but can add separately.]",
+      "last_count": 35,
       "active": true
     },
-
     {
       "label": "discoveries",
       "class_qid": "Q12772819",
@@ -347,7 +342,7 @@
       "wikidata_label": "discovery",
       "notes": "SKIP: Only 12 dated Wikipedia results via P31/P279*. Wikipedia's 'Category:Discoveries' contains meta-articles (lists, timelines), not individual discovery events. Geographic discoveries come through via expeditions (Q2401485); scientific ones via scientific experiments (Q11862829). Run --discover on subcategories like Category:Archaeological discoveries to find better QIDs.",
       "last_count": 12,
-      "active": false
+      "active": true
     },
     {
       "label": "inventions",
@@ -363,7 +358,7 @@
       "class_qid": null,
       "wiki_category": "Category:Trials",
       "wikidata_label": null,
-      "notes": "SKIP: Wikidata P31 data for historical trials is inconsistent — Nuremberg has no P31, Galileo='dyad', Socrates='commune of France'. No reliable class QID. Famous trials come through via Q180684 (conflicts) or manual entry.",
+      "notes": "SKIP: Wikidata P31 data for historical trials is inconsistent \u2014 Nuremberg has no P31, Galileo='dyad', Socrates='commune of France'. No reliable class QID. Famous trials come through via Q180684 (conflicts) or manual entry.",
       "last_count": 0,
       "active": false
     },

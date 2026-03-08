@@ -257,6 +257,107 @@ async function _searchViaWikipedia(query: string): Promise<EntityResult[]> {
   } catch { return []; }
 }
 
+// ── Batch polity label translations ────────────────────────────────────────
+
+export async function fetchEntityTranslations(
+  qids: string[],
+  lang: string,
+): Promise<Record<string, string>> {
+  if (lang === 'en' || qids.length === 0) return {};
+
+  const valid = qids.filter((q) => /^Q\d+$/.test(q));
+  const result: Record<string, string> = {};
+  const BATCH = 50;
+
+  const batches: string[][] = [];
+  for (let i = 0; i < valid.length; i += BATCH) batches.push(valid.slice(i, i + BATCH));
+
+  // Run up to 8 parallel batches at a time
+  const PARALLEL = 8;
+  for (let i = 0; i < batches.length; i += PARALLEL) {
+    await Promise.all(
+      batches.slice(i, i + PARALLEL).map(async (batch) => {
+        try {
+          const params = new URLSearchParams({
+            action: 'wbgetentities',
+            ids: batch.join('|'),
+            props: 'labels',
+            languages: lang,
+            format: 'json',
+            origin: '*',
+          });
+          const data = await fetch(`https://www.wikidata.org/w/api.php?${params}`).then((r) => r.json());
+          for (const [qid, entity] of Object.entries(data.entities ?? {})) {
+            const label = (entity as Record<string, unknown> & { labels?: Record<string, { value: string }> }).labels?.[lang]?.value;
+            if (label) result[qid] = label;
+          }
+        } catch { /* skip failed batch */ }
+      }),
+    );
+  }
+  return result;
+}
+
+// ── Multi-language Wikipedia fetch ─────────────────────────────────────────
+
+export interface TranslatedArticle {
+  title: string;
+  wikiTitle: string; // article title in target-language Wikipedia (for API calls)
+  summary: string; // empty string if no article exists
+  hasArticle: boolean;
+}
+
+export async function fetchArticleInLanguage(
+  wikidataQid: string,
+  lang: string,
+): Promise<TranslatedArticle | null> {
+  if (lang === 'en') return null; // caller handles English natively
+
+  try {
+    // 1. Fetch Wikidata label + sitelink for this language
+    const params = new URLSearchParams({
+      action: 'wbgetentities',
+      ids: wikidataQid,
+      props: 'labels|sitelinks',
+      languages: lang,
+      sitelinkfilter: `${lang}wiki`,
+      format: 'json',
+      origin: '*',
+    });
+    const wdRes = await fetch(`https://www.wikidata.org/w/api.php?${params}`);
+    if (!wdRes.ok) return null;
+    const wdData = await wdRes.json();
+
+    const entity = wdData.entities?.[wikidataQid];
+    if (!entity) return null;
+
+    const label = entity.labels?.[lang]?.value as string | undefined;
+    const sitelink = entity.sitelinks?.[`${lang}wiki`] as { title: string } | undefined;
+
+    if (!sitelink) {
+      // No Wikipedia article in this language — return label only if available
+      return label ? { title: label, wikiTitle: '', summary: '', hasArticle: false } : null;
+    }
+
+    // 2. Fetch Wikipedia summary from the target language edition
+    const title = encodeURIComponent(sitelink.title.replace(/ /g, '_'));
+    const wpRes = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${title}`);
+    if (!wpRes.ok) {
+      return { title: label ?? sitelink.title, wikiTitle: sitelink.title, summary: '', hasArticle: false };
+    }
+    const wpData = await wpRes.json();
+
+    return {
+      title: wpData.title ?? label ?? sitelink.title,
+      wikiTitle: sitelink.title,
+      summary: wpData.extract ?? '',
+      hasArticle: true,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function submitLocationEdit(
   entityId: string, locationQid: string, csrf: string,
 ): Promise<void> {

@@ -1,14 +1,20 @@
 import type { Category } from '../types';
-import { EVENT_CATEGORIES, LOCATION_CATEGORIES, POLITY_CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
+import { EVENT_CATEGORIES, LOCATION_CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
+import { WIKIPEDIA_LANGUAGES } from '../lib/languages';
+
 interface Props {
   activeCategories: Set<Category>;
   onToggle: (cat: Category) => void;
-  activePolityCategories: Set<Category>;
-  onTogglePolity: (cat: Category) => void;
+  showBorders: boolean;
+  onToggleBorders: () => void;
+  showOtherPolities: boolean;
+  onToggleOtherPolities: () => void;
   onOpenData: () => void;
   onOpenAbout: () => void;
   onEditTerritory: () => void;
   editorMode: boolean;
+  selectedLang: string;
+  onLangChange: (lang: string) => void;
 }
 
 function GroupLabel({ label, cats, activeSet, onToggle }: {
@@ -86,7 +92,10 @@ function ChipGroup({ cats, activeCategories, onToggle }: {
   );
 }
 
-export function CategoryFilter({ activeCategories, onToggle, activePolityCategories, onTogglePolity, onOpenData, onOpenAbout, onEditTerritory, editorMode }: Props) {
+export function CategoryFilter({ activeCategories, onToggle, showBorders, onToggleBorders, showOtherPolities, onToggleOtherPolities, onOpenData, onOpenAbout, onEditTerritory, editorMode, selectedLang, onLangChange }: Props) {
+  const bordersColor = '#607D8B';
+  const otherPolitiesColor = '#9C27B0';
+
   return (
     <div style={styles.bar}>
       {/* Row 1: wordmark + nav buttons */}
@@ -96,25 +105,54 @@ export function CategoryFilter({ activeCategories, onToggle, activePolityCategor
         <button onClick={onEditTerritory} style={{ ...styles.dataBtn, ...(editorMode ? styles.dataBtnActive : {}) }}>Edit Territory</button>
         <button onClick={onOpenData} style={styles.dataBtn}>Data Explorer ↗</button>
         <button onClick={onOpenAbout} style={styles.dataBtn}>About</button>
+        <select
+          value={selectedLang}
+          onChange={(e) => onLangChange(e.target.value)}
+          style={styles.langSelect}
+          title="Wikipedia language"
+        >
+          {WIKIPEDIA_LANGUAGES.map(([code, , en]) => (
+            <option key={code} value={code}>{en}</option>
+          ))}
+        </select>
       </div>
 
-      <div style={styles.rowDivider} />
-
-      {/* Row 2: events + locations */}
+      {/* Row 2: polity toggles + events + locations */}
       <div style={styles.row}>
+        {/* Borders toggle */}
+        <button
+          onClick={onToggleBorders}
+          style={{
+            ...styles.chip,
+            background: showBorders ? `${bordersColor}22` : 'transparent',
+            borderColor: showBorders ? `${bordersColor}88` : 'rgba(0,0,0,0.15)',
+            color: showBorders ? '#202122' : '#9a9a9a',
+          }}
+          title={showBorders ? 'Hide territory borders' : 'Show territory borders'}
+        >
+          <span style={{ ...styles.dot, background: bordersColor, opacity: showBorders ? 1 : 0.4 }} />
+          Borders
+        </button>
+        {/* Other Polities toggle */}
+        <button
+          onClick={onToggleOtherPolities}
+          style={{
+            ...styles.chip,
+            background: showOtherPolities ? `${otherPolitiesColor}22` : 'transparent',
+            borderColor: showOtherPolities ? `${otherPolitiesColor}88` : 'rgba(0,0,0,0.15)',
+            color: showOtherPolities ? '#202122' : '#9a9a9a',
+          }}
+          title={showOtherPolities ? 'Hide unlinked polities' : 'Show unlinked polities'}
+        >
+          <span style={{ ...styles.dot, background: otherPolitiesColor, opacity: showOtherPolities ? 1 : 0.4 }} />
+          Other Polities
+        </button>
+        <div style={styles.groupDivider} />
         <GroupLabel label="Events" cats={EVENT_CATEGORIES} activeSet={activeCategories} onToggle={onToggle} />
         <ChipGroup cats={EVENT_CATEGORIES} activeCategories={activeCategories} onToggle={onToggle} />
         <div style={styles.groupDivider} />
         <GroupLabel label="Locations" cats={LOCATION_CATEGORIES} activeSet={activeCategories} onToggle={onToggle} />
         <ChipGroup cats={LOCATION_CATEGORIES} activeCategories={activeCategories} onToggle={onToggle} />
-      </div>
-
-      <div style={styles.rowDivider} />
-
-      {/* Row 3: polities */}
-      <div style={styles.row}>
-        <GroupLabel label="Polities" cats={POLITY_CATEGORIES} activeSet={activePolityCategories} onToggle={onTogglePolity} />
-        <ChipGroup cats={POLITY_CATEGORIES} activeCategories={activePolityCategories} onToggle={onTogglePolity} />
       </div>
     </div>
   );
@@ -139,11 +177,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0 20px',
     height: 34,
     overflow: 'hidden',
-  },
-  rowDivider: {
-    height: 1,
-    background: 'rgba(0,0,0,0.07)',
-    margin: '0 20px',
   },
   wordmark: {
     fontSize: 15,
@@ -205,5 +238,18 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#e8f0fe',
     borderColor: '#3366cc',
     color: '#3366cc',
+  },
+  langSelect: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#202122',
+    background: 'transparent',
+    border: '1px solid rgba(0,0,0,0.18)',
+    borderRadius: 6,
+    padding: '5px 8px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+    maxWidth: 120,
   },
 };

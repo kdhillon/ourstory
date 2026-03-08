@@ -5,6 +5,10 @@ import { CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
 import { CATEGORY_SVGS, colorSvg, svgDataUri } from '../theme/icons';
 import { displayYear, encodeDate, STEP_DAY, STEP_MONTH, STEP_YEAR } from '../hooks/useTimeline';
 import { WikiEditForm } from './WikiEditForm';
+import { fetchArticleInLanguage } from '../lib/wikidataApi';
+import { LANG_CODE_TO_NAME } from '../lib/languages';
+import { patchFeature, patchPolity } from '../lib/api';
+import { EVENT_CATEGORIES, POLITY_CATEGORIES } from '../theme/categories';
 
 interface WikiSection {
   title: string;
@@ -14,6 +18,8 @@ interface WikiSection {
 
 interface WikiArticle {
   wikiTitle: string;
+  apiBase: string;
+  lang: string;
   images: string[];
   leadHtml: string;
   sections: WikiSection[];
@@ -31,19 +37,22 @@ interface Props {
   hiddenNations?: Map<string, number>;
   onToggleHiddenNation?: (polityId: string) => void;
   onHideFeature?: (id: string, type: 'polity' | 'event') => void;
+  selectedLang?: string;
 }
 
-const WIKI_API = 'https://en.wikipedia.org/w/api.php';
+function wikiApi(lang: string) {
+  return `https://${lang}.wikipedia.org/w/api.php`;
+}
 
 function wikiParams(p: Record<string, string>): string {
   return new URLSearchParams({ format: 'json', origin: '*', ...p }).toString();
 }
 
-function fixWikiHtml(html: string): string {
+function fixWikiHtml(html: string, lang = 'en'): string {
   return html
     .replace(
       /href="(\/wiki\/[^"#]+)"/g,
-      'target="_blank" rel="noopener noreferrer" href="https://en.wikipedia.org$1"',
+      `target="_blank" rel="noopener noreferrer" href="https://${lang}.wikipedia.org$1"`,
     )
     .replace(/src="\/\/([^"]+)"/g, 'src="https://$1"')
     .replace(/srcset="\/\/([^"]+)"/g, 'srcset="https://$1"');
@@ -61,7 +70,7 @@ function PencilIcon() {
   );
 }
 
-export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeature, wikiAuth, onAuth, onFeatureUpdated, hiddenNations, onToggleHiddenNation, onHideFeature }: Props) {
+export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeature, wikiAuth, onAuth, onFeatureUpdated, hiddenNations, onToggleHiddenNation, onHideFeature, selectedLang = 'en' }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [expandedWidth, setExpandedWidth] = useState(468);
   const [editField, setEditField] = useState<'date' | 'location' | 'capital' | 'sovereign' | null>(null);
@@ -77,9 +86,24 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
   const [loadingSections, setLoadingSections] = useState<Set<number>>(new Set());
   const [imageIndex, setImageIndex] = useState(0);
   const [imageExpanded, setImageExpanded] = useState(false);
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
+  const [categorySaving, setCategorySaving] = useState(false);
 
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const categoryPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close category picker on outside click
+  useEffect(() => {
+    if (!categoryPickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (categoryPickerRef.current && !categoryPickerRef.current.contains(e.target as Node)) {
+        setCategoryPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [categoryPickerOpen]);
 
   const startDrag = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -108,11 +132,16 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
   // Reset everything when a different feature is selected
   const [fetchedSummary, setFetchedSummary] = useState<string | null>(null);
 
+  // Translated title + summary for non-English languages
+  const [translatedContent, setTranslatedContent] = useState<{ title: string; wikiTitle: string; summary: string; hasArticle: boolean } | null>(null);
+  const [translating, setTranslating] = useState(false);
+
   useEffect(() => {
     setExpanded(true);
     setArticle(null);
     setLoading(false);
     setFetchedSummary(null);
+    setTranslatedContent(null);
     setOpenSections(new Set());
     setSectionHtml(new Map());
     setLoadingSections(new Set());
@@ -122,7 +151,35 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
     setCapitalDraft(null);
     setSovereignQuery('');
     setSovereignQidDraft(null);
+    setCategoryPickerOpen(false);
   }, [feature?.title]);
+
+  // Reset article when language changes so it re-fetches in the new language
+  useEffect(() => {
+    setArticle(null);
+    setOpenSections(new Set());
+    setSectionHtml(new Map());
+  }, [selectedLang]);
+
+  // Fetch translation when language or feature changes
+  useEffect(() => {
+    const qid = feature?.wikidataQid;
+    if (!qid || selectedLang === 'en') {
+      setTranslatedContent(null);
+      return;
+    }
+    let cancelled = false;
+    setTranslating(true);
+    setTranslatedContent(null);
+    fetchArticleInLanguage(qid, selectedLang).then((result) => {
+      if (cancelled) return;
+      setTranslatedContent(result);
+      setTranslating(false);
+    }).catch(() => {
+      if (!cancelled) setTranslating(false);
+    });
+    return () => { cancelled = true; };
+  }, [feature?.wikidataQid, selectedLang]);
 
   // On-demand summary fetch for features with no pre-populated wikipediaSummary
   useEffect(() => {
@@ -130,7 +187,7 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
     const match = feature.wikipediaUrl.match(/\/wiki\/([^#?]+)/);
     if (!match) return;
     const title = match[1];
-    fetch(`${WIKI_API}?${wikiParams({ action: 'query', titles: title, prop: 'extracts', exintro: '1', explaintext: '1', exsentences: '3' })}`)
+    fetch(`${wikiApi('en')}?${wikiParams({ action: 'query', titles: title, prop: 'extracts', exintro: '1', explaintext: '1', exsentences: '3' })}`)
       .then((r) => r.json())
       .then((data) => {
         const pages = Object.values(data.query?.pages ?? {}) as Array<{ extract?: string }>;
@@ -142,19 +199,32 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
 
   // Fetch lead + section list + thumbnail in parallel on expand
   useEffect(() => {
-    if (!expanded || article !== null || !feature?.wikipediaUrl) return;
-    const match = feature.wikipediaUrl.match(/\/wiki\/([^#?]+)/);
-    if (!match) return;
-    const title = match[1];
+    if (!expanded || article !== null) return;
+
+    let apiBase: string;
+    let pageTitle: string;
+
+    if (selectedLang === 'en') {
+      if (!feature?.wikipediaUrl) return;
+      const match = feature.wikipediaUrl.match(/\/wiki\/([^#?]+)/);
+      if (!match) return;
+      apiBase = wikiApi('en');
+      pageTitle = match[1];
+    } else {
+      // Wait for translatedContent to resolve the sitelink title
+      if (!translatedContent?.wikiTitle) return;
+      apiBase = wikiApi(selectedLang);
+      pageTitle = translatedContent.wikiTitle;
+    }
 
     setLoading(true);
     Promise.all([
-      fetch(`${WIKI_API}?${wikiParams({ action: 'parse', page: title, section: '0', prop: 'text' })}`).then((r) => r.json()),
-      fetch(`${WIKI_API}?${wikiParams({ action: 'parse', page: title, prop: 'sections' })}`).then((r) => r.json()),
-      fetch(`${WIKI_API}?${wikiParams({ action: 'query', generator: 'images', titles: title, prop: 'imageinfo', iiprop: 'url|size|mime', iiurlwidth: '800', gimlimit: '30' })}`).then((r) => r.json()),
+      fetch(`${apiBase}?${wikiParams({ action: 'parse', page: pageTitle, section: '0', prop: 'text' })}`).then((r) => r.json()),
+      fetch(`${apiBase}?${wikiParams({ action: 'parse', page: pageTitle, prop: 'sections' })}`).then((r) => r.json()),
+      fetch(`${apiBase}?${wikiParams({ action: 'query', generator: 'images', titles: pageTitle, prop: 'imageinfo', iiprop: 'url|size|mime', iiurlwidth: '800', gimlimit: '30' })}`).then((r) => r.json()),
     ])
       .then(([leadRes, sectionsRes, imagesRes]) => {
-        const leadHtml = fixWikiHtml(leadRes.parse?.text?.['*'] ?? '');
+        const leadHtml = fixWikiHtml(leadRes.parse?.text?.['*'] ?? '', selectedLang);
         const sections: WikiSection[] = (sectionsRes.parse?.sections ?? []).map(
           (s: { line?: string; index?: string; toclevel?: number }) => ({
             title: stripHtml(String(s.line ?? '')),
@@ -173,14 +243,13 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
           })
           .map((p) => p.imageinfo![0].thumburl ?? p.imageinfo![0].url ?? '')
           .filter(Boolean);
-        setArticle({ wikiTitle: title, images, leadHtml, sections });
+        setArticle({ wikiTitle: pageTitle, apiBase, lang: selectedLang, images, leadHtml, sections });
       })
       .catch(() => {
-        const match2 = feature.wikipediaUrl!.match(/\/wiki\/([^#?]+)/);
-        setArticle({ wikiTitle: match2?.[1] ?? '', images: [], leadHtml: '<p>Could not load article.</p>', sections: [] });
+        setArticle({ wikiTitle: pageTitle, apiBase, lang: selectedLang, images: [], leadHtml: '<p>Could not load article.</p>', sections: [] });
       })
       .finally(() => setLoading(false));
-  }, [expanded, feature?.wikipediaUrl, article]);
+  }, [expanded, feature?.wikipediaUrl, article, selectedLang, translatedContent]);
 
   // Auto-open and pre-fetch the "History" section when article first loads
   useEffect(() => {
@@ -190,10 +259,10 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
 
     setOpenSections((prev) => new Set(prev).add(history.index));
     setLoadingSections((prev) => new Set(prev).add(history.index));
-    fetch(`${WIKI_API}?${wikiParams({ action: 'parse', page: article.wikiTitle, section: String(history.index), prop: 'text' })}`)
+    fetch(`${article.apiBase}?${wikiParams({ action: 'parse', page: article.wikiTitle, section: String(history.index), prop: 'text' })}`)
       .then((r) => r.json())
       .then((data) => {
-        setSectionHtml((prev) => new Map(prev).set(history.index, fixWikiHtml(data.parse?.text?.['*'] ?? '')));
+        setSectionHtml((prev) => new Map(prev).set(history.index, fixWikiHtml(data.parse?.text?.['*'] ?? '', article.lang)));
       })
       .catch(() => {
         setSectionHtml((prev) => new Map(prev).set(history.index, '<p>Could not load section.</p>'));
@@ -263,10 +332,10 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
 
     if (!sectionHtml.has(i) && !loadingSections.has(i) && article) {
       setLoadingSections((prev) => new Set(prev).add(i));
-      fetch(`${WIKI_API}?${wikiParams({ action: 'parse', page: article.wikiTitle, section: String(i), prop: 'text' })}`)
+      fetch(`${article.apiBase}?${wikiParams({ action: 'parse', page: article.wikiTitle, section: String(i), prop: 'text' })}`)
         .then((r) => r.json())
         .then((data) => {
-          setSectionHtml((prev) => new Map(prev).set(i, fixWikiHtml(data.parse?.text?.['*'] ?? '<p>Empty section.</p>')));
+          setSectionHtml((prev) => new Map(prev).set(i, fixWikiHtml(data.parse?.text?.['*'] ?? '<p>Empty section.</p>', article.lang)));
         })
         .catch(() => {
           setSectionHtml((prev) => new Map(prev).set(i, '<p>Could not load section.</p>'));
@@ -295,14 +364,17 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
 
       {/* Header */}
       <div style={styles.header}>
-        <div style={styles.headerLeft}>
+        <div style={{ ...styles.headerLeft, position: 'relative' }}>
           {(feature.categories ?? []).map((cat) => {
             const color   = CATEGORY_COLORS[cat as Category] ?? '#9E9E9E';
             const rawSvg  = CATEGORY_SVGS[cat as Category];
             const iconSrc = rawSvg ? svgDataUri(colorSvg(rawSvg, color)) : null;
+            const isEditable = feature.featureType === 'event' || feature.featureType === 'polity';
             return (
               <span
                 key={cat}
+                title={isEditable ? 'Click to reassign category' : undefined}
+                onClick={isEditable ? () => setCategoryPickerOpen((v) => !v) : undefined}
                 style={{
                   ...styles.tag,
                   background: `${color}22`,
@@ -311,15 +383,140 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 4,
+                  cursor: isEditable ? 'pointer' : 'default',
                 }}
               >
                 {iconSrc && (
                   <img src={iconSrc} width={12} height={12} style={{ flexShrink: 0, display: 'block' }} />
                 )}
                 {CATEGORY_LABELS[cat as Category] ?? cat}
+                {isEditable && <span style={{ opacity: 0.5, marginLeft: 2, display: 'flex', alignItems: 'center' }}><PencilIcon /></span>}
               </span>
             );
           })}
+          {/* "+ Category" button for uncategorized events/polities */}
+          {(feature.categories ?? []).length === 0 && (feature.featureType === 'event' || feature.featureType === 'polity') && (
+            <button
+              onClick={() => setCategoryPickerOpen((v) => !v)}
+              style={{
+                ...styles.tag,
+                background: 'transparent',
+                color: '#888',
+                borderColor: '#555',
+                borderStyle: 'dashed',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+            >
+              + Category
+            </button>
+          )}
+          {/* Category picker dropdown */}
+          {categoryPickerOpen && (feature.featureType === 'event' || feature.featureType === 'polity') && (() => {
+            const options = feature.featureType === 'polity' ? POLITY_CATEGORIES : EVENT_CATEGORIES;
+            return (
+              <div ref={categoryPickerRef} style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                zIndex: 100,
+                background: '#1e1e1e',
+                border: '1px solid #444',
+                borderRadius: 6,
+                padding: '4px 0',
+                marginTop: 4,
+                minWidth: 140,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              }}>
+                {options.map((opt) => {
+                  const color = CATEGORY_COLORS[opt] ?? '#9E9E9E';
+                  const isCurrent = (feature.categories ?? []).includes(opt);
+                  return (
+                    <button
+                      key={opt}
+                      disabled={categorySaving || isCurrent}
+                      onClick={async () => {
+                        if (isCurrent) return;
+                        setCategorySaving(true);
+                        try {
+                          let updated: GeoJSON.Feature;
+                          if (feature.featureType === 'polity') {
+                            updated = await patchPolity(feature.id, { polity_type: opt });
+                          } else {
+                            updated = await patchFeature(feature.id, { categories: [opt] });
+                          }
+                          onFeatureUpdated(updated.properties as Partial<FeatureProperties>);
+                          setCategoryPickerOpen(false);
+                        } catch (e) {
+                          console.error('Category save failed', e);
+                        } finally {
+                          setCategorySaving(false);
+                        }
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: '100%',
+                        padding: '6px 12px',
+                        background: isCurrent ? `${color}22` : 'transparent',
+                        border: 'none',
+                        color: isCurrent ? color : '#ccc',
+                        fontSize: 12,
+                        cursor: isCurrent ? 'default' : 'pointer',
+                        textAlign: 'left',
+                        opacity: categorySaving ? 0.5 : 1,
+                      }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                      {CATEGORY_LABELS[opt] ?? opt}
+                      {isCurrent && <span style={{ marginLeft: 'auto', fontSize: 10 }}>✓</span>}
+                    </button>
+                  );
+                })}
+                {/* Separator + None option */}
+                <div style={{ borderTop: '1px solid #333', margin: '4px 0' }} />
+                <button
+                  disabled={categorySaving || (feature.categories ?? []).length === 0}
+                  onClick={async () => {
+                    setCategorySaving(true);
+                    try {
+                      let updated: GeoJSON.Feature;
+                      if (feature.featureType === 'polity') {
+                        updated = await patchPolity(feature.id, { polity_type: 'other' });
+                      } else {
+                        updated = await patchFeature(feature.id, { categories: [] });
+                      }
+                      onFeatureUpdated(updated.properties as Partial<FeatureProperties>);
+                      setCategoryPickerOpen(false);
+                    } catch (e) {
+                      console.error('Category clear failed', e);
+                    } finally {
+                      setCategorySaving(false);
+                    }
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    width: '100%',
+                    padding: '6px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#666',
+                    fontSize: 12,
+                    cursor: (feature.categories ?? []).length === 0 ? 'default' : 'pointer',
+                    textAlign: 'left',
+                    opacity: categorySaving ? 0.5 : 1,
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#444', flexShrink: 0 }} />
+                  None
+                  {(feature.categories ?? []).length === 0 && <span style={{ marginLeft: 'auto', fontSize: 10 }}>✓</span>}
+                </button>
+              </div>
+            );
+          })()}
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           {expanded && (
@@ -366,7 +563,11 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
       {/* Title + date on same row */}
       <div style={styles.titleRow}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-          <h2 style={styles.title}>{feature.title}</h2>
+          <h2 style={styles.title}>{translatedContent?.title ?? feature.title}</h2>
+          {translating && <span style={{ fontSize: 11, color: '#888', marginLeft: 4 }}>…</span>}
+          {selectedLang !== 'en' && !translating && translatedContent === null && feature.wikidataQid && (
+            <span style={{ fontSize: 11, color: '#aaa' }}>({LANG_CODE_TO_NAME[selectedLang] ?? selectedLang}: no translation)</span>
+          )}
         </div>
         {dateStr && (
           <div style={styles.dateBlock}>
@@ -720,13 +921,21 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
         overflowY: expanded ? 'auto' : 'visible',
       }}>
         {!expanded ? (
-          (feature.wikipediaSummary || fetchedSummary) && (
-            <p style={styles.summary}>{feature.wikipediaSummary || fetchedSummary}</p>
-          )
+          (() => {
+            const summary = translatedContent?.summary || feature.wikipediaSummary || fetchedSummary;
+            if (translatedContent && !translatedContent.hasArticle && !translatedContent.summary) {
+              return <p style={{ ...styles.summary, color: '#aaa', fontStyle: 'italic' }}>No article in {LANG_CODE_TO_NAME[selectedLang] ?? selectedLang}</p>;
+            }
+            return <p style={styles.summary}>{summary}</p>;
+          })()
         ) : loading ? (
-          (feature.wikipediaSummary || fetchedSummary) && (
-            <p style={styles.summary}>{feature.wikipediaSummary || fetchedSummary}</p>
-          )
+          (() => {
+            const summary = translatedContent?.summary || feature.wikipediaSummary || fetchedSummary;
+            if (translatedContent && !translatedContent.hasArticle && !translatedContent.summary) {
+              return <p style={{ ...styles.summary, color: '#aaa', fontStyle: 'italic' }}>No article in {LANG_CODE_TO_NAME[selectedLang] ?? selectedLang}</p>;
+            }
+            return <p style={styles.summary}>{summary}</p>;
+          })()
         ) : article ? (
           <>
             {/* Lead section */}

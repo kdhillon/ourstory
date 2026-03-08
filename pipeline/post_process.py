@@ -5,15 +5,11 @@ pipeline/post_process.py
 Runs the full post-pipeline sequence after a pipeline pass:
 
   1. cleanup-non-settlements  — reclassify/delete bad location types
-  2. backfill-part-of         — fetch P361 for events missing it
-  3. backfill-city-summaries  — fetch Wikipedia summaries for locations missing them
-  4. export GeoJSON           — write frontend/src/data/seed.geojson
-
-LLM category fixing (fix-empty-categories.py) is intentionally excluded here
-because it requires an Anthropic API key and should be reviewed / run twice
-manually. Run it separately:
-
-    ANTHROPIC_API_KEY=... python3 scripts/fix-empty-categories.py
+  2. assign-categories        — rule-based P31 category assignment
+  3. backfill-part-of         — fetch P361 for events missing it
+  4. backfill-city-summaries  — fetch Wikipedia summaries for locations missing them
+  5. backfill-sitelinks       — fetch sitelinks count for zoom-based importance filtering
+  6. export GeoJSON           — write frontend/public/data/seed.geojson
 
 Usage:
     python3 -m pipeline.post_process          # standalone
@@ -30,7 +26,6 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 SCRIPTS = ROOT / "scripts"
 
-# Ensure scripts can import from the project root (e.g. pipeline.extract)
 _ENV = {**os.environ, "PYTHONPATH": str(ROOT)}
 
 
@@ -49,9 +44,9 @@ def run(label: str, cmd: list[str], dry_run: bool = False) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="OurStory post-pipeline processing")
+    parser = argparse.ArgumentParser(description="OpenHistory post-pipeline processing")
     parser.add_argument("--skip-backfills", action="store_true",
-                        help="Skip backfill-part-of and backfill-city-summaries")
+                        help="Skip backfill-part-of, backfill-city-summaries, and backfill-sitelinks")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print what would run without executing")
     args = parser.parse_args()
@@ -60,6 +55,8 @@ def main():
     steps = [
         ("Cleanup non-settlement locations",
          [py, str(SCRIPTS / "cleanup-non-settlements.py")]),
+        ("Assign categories (rule-based P31 mapping)",
+         [py, str(SCRIPTS / "assign-categories.py")]),
     ]
 
     if not args.skip_backfills:
@@ -85,9 +82,6 @@ def main():
             sys.exit(1)
 
     print("\n\nPost-processing complete.")
-    print("\nIf you have uncategorized events, run:")
-    print("  ANTHROPIC_API_KEY=... python3 scripts/fix-empty-categories.py")
-    print("  (run twice; delete any still-empty events after the second pass)")
 
 
 if __name__ == "__main__":

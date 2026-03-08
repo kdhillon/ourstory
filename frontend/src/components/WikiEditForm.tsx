@@ -278,12 +278,6 @@ export function WikiEditForm({ feature, field, wikiAuth, onAuth, onSuccess, onCl
         <button style={s.closeBtn} onClick={onClose}>✕</button>
       </div>
 
-      {/* Logged-in user badge */}
-      <div style={s.authBadge}>
-        <span style={s.authUser}>Editing as <strong>{wikiAuth}</strong></span>
-        <button style={s.ghostBtn} onClick={handleLogout}>Log out</button>
-      </div>
-
       {field === 'date' ? (
         <>
           {/* Start date */}
@@ -314,6 +308,10 @@ export function WikiEditForm({ feature, field, wikiAuth, onAuth, onSuccess, onCl
             </div>
           </div>
 
+          <div style={s.authBadge}>
+            <span style={s.authUser}>Editing as <strong>{wikiAuth}</strong></span>
+            <button style={s.ghostBtn} onClick={handleLogout}>Log out</button>
+          </div>
           <p style={s.hint}>
             Saves as Wikidata P580/P582 (start/end time) or P585 (point in time). Month and day are optional.
           </p>
@@ -365,6 +363,10 @@ export function WikiEditForm({ feature, field, wikiAuth, onAuth, onSuccess, onCl
             </div>
           )}
 
+          <div style={s.authBadge}>
+            <span style={s.authUser}>Editing as <strong>{wikiAuth}</strong></span>
+            <button style={s.ghostBtn} onClick={handleLogout}>Log out</button>
+          </div>
           <p style={s.hint}>Saves as Wikidata P276 (location). Propagates to Wikipedia infoboxes automatically.</p>
         </>
       )}
