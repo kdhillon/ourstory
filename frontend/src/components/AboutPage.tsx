@@ -2,18 +2,6 @@ interface Props {
   onBack: () => void;
 }
 
-const SNAPSHOT_YEARS = [
-  -100000, -10000, -8000, -5000, -4000, -3000, -2000, -1000, -500, -323,
-  -200, 1, 200, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1279,
-  1300, 1400, 1492, 1500, 1530, 1600, 1650, 1700, 1715, 1783, 1800,
-  1815, 1880, 1900, 1914, 1920, 1930, 1938, 1945, 1960, 1994, 2000, 2010,
-];
-
-function formatYear(y: number): string {
-  if (y < 0) return `${Math.abs(y).toLocaleString()} BCE`;
-  if (y === 0) return '1 CE';
-  return `${y} CE`;
-}
 
 export function AboutPage({ onBack }: Props) {
   return (
@@ -46,35 +34,20 @@ export function AboutPage({ onBack }: Props) {
         <ul style={styles.ul}>
           <li><strong>Events</strong> — battles, elections, treaties, disasters, discoveries, and more, each with a date and location</li>
           <li><strong>Locations</strong> — cities, regions, and countries referenced by events</li>
-          <li><strong>Polities</strong> — kingdoms, empires, republics, colonies, viceroyalties, and other political entities. They may have founding and dissolution dates and a capital, and can be assigned to a territory.</li>
+          <li><strong>Polities</strong> — kingdoms, empires, republics, colonies, viceroyalties, indigenous nations, peoples, and other political entities. They may have founding and dissolution dates and a capital, and can be assigned to a territory.</li>
         </ul>
-        <p style={styles.p}>
-          Current event coverage: <strong>1770–1820</strong>. Other periods are being added progressively.
-          Data quality varies — dates and locations are occasionally wrong or missing, reflecting
-          the state of Wikidata itself.
-        </p>
 
         <h3 style={styles.h3}>Territory Polygons — historical-basemaps</h3>
         <p style={styles.p}>
           Territory boundaries (the shaded regions on the map) come from the open-source{' '}
           <a style={styles.a} href="https://github.com/aourednik/historical-basemaps" target="_blank" rel="noreferrer">historical-basemaps</a>{' '}
-          project by A. Ourednik (GPL-3.0). It provides hand-curated GeoJSON polygon snapshots
-          for major historical territories. Each territory polygon is then linked to a polity in
-          our database, so the shaded region and the polity dot refer to the same entity.
+          project by A. Ourednik (GPL-3.0). It provides 53 hand-curated GeoJSON polygon snapshots
+          spanning 100,000 BCE to 2010 CE. Territory polygons can be linked to a polity in our
+          database — when linked, the shaded region and the polity marker refer to the same entity.
         </p>
 
-        <h3 style={styles.h3}>Territory Snapshots</h3>
         <p style={styles.p}>
-          Unlike events and polities — which have precise year-level dates — territory boundaries
-          only exist at fixed snapshot years. Between snapshots, we interpolate by holding the
-          nearest boundary steady. This means territory shapes can be less granular than the
-          event and polity data around them.
-        </p>
-        <p style={styles.p}>
-          The {SNAPSHOT_YEARS.length} available snapshots are:
-        </p>
-        <p style={{ ...styles.p, fontFamily: 'monospace', fontSize: 13, lineHeight: 1.8, color: '#54595d' }}>
-          {SNAPSHOT_YEARS.map(formatYear).join(' · ')}
+          Instead of snapshots, OpenHistory supports year-level editing for borders. See below for instructions on how to edit borders.
         </p>
 
         <hr style={styles.rule} />
@@ -103,25 +76,27 @@ export function AboutPage({ onBack }: Props) {
           <li>Select the correct polity from the search results</li>
         </ol>
         <p style={styles.p}>
-          No account required. Territory edits are saved to the OpenHistory database and
-          apply immediately. We appreciate any help filling in these mappings — especially
-          for less-covered regions and time periods.
+          No account required. Territory mappings are saved to the OpenHistory database and
+          apply immediately.
         </p>
+
+        <h3 style={styles.h3}>Editing Territory Boundaries</h3>
         <p style={styles.p}>
-          Direct editing of territory polygon boundaries is not yet supported, but is planned
-          for a future release (see below).
+          Territory polygon shapes can be edited directly from the map. Click <strong>Edit Borders ✎</strong>{' '}
+          in the top bar to enter the territory editor. In this mode:
         </p>
-
-        <hr style={styles.rule} />
-
-        <h2 style={styles.h2}>Future Work</h2>
         <ul style={styles.ul}>
-          <li><strong>Expanded event coverage</strong> — more time periods beyond 1770–1820</li>
-          <li><strong>Territory boundary editing</strong> — a built-in editor to draw and correct polygon boundaries, with the ability to contribute changes back to the{' '}
-            <a style={styles.a} href="https://github.com/aourednik/historical-basemaps" target="_blank" rel="noreferrer">historical-basemaps</a> project as new snapshots</li>
-          <li><strong>More snapshot years</strong> — interpolated boundaries between the existing fixed snapshots</li>
-          <li><strong>Sub-polity territories</strong> — provinces, counties, and other administrative divisions within larger polities</li>
+          <li>Drag any vertex to reshape a boundary</li>
+          <li>Hover over an edge and click (or right-click) to insert a new vertex</li>
+          <li>Right-click a vertex to delete it; or click to select it, then press Delete</li>
+          <li>Press <strong>Ctrl+Z</strong> to undo any change</li>
+          <li>Draw entirely new territory polygons with the <strong>+</strong> button</li>
         </ul>
+        <p style={styles.p}>
+          Shared borders between adjacent territories move together — editing one side
+          automatically updates the neighbouring polygon. Changes are saved to the OpenHistory
+          database. No account required.
+        </p>
 
         <hr style={styles.rule} />
 

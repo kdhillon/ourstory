@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Category } from '../types';
 import { EVENT_CATEGORIES, LOCATION_CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
 import { WIKIPEDIA_LANGUAGES } from '../lib/languages';
@@ -95,27 +96,63 @@ function ChipGroup({ cats, activeCategories, onToggle }: {
 export function CategoryFilter({ activeCategories, onToggle, showBorders, onToggleBorders, showOtherPolities, onToggleOtherPolities, onOpenData, onOpenAbout, onEditTerritory, editorMode, selectedLang, onLangChange }: Props) {
   const bordersColor = '#607D8B';
   const otherPolitiesColor = '#9C27B0';
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const gearRef = useRef<HTMLButtonElement>(null);
+  const settingsModalRef = useRef<HTMLDivElement>(null);
+
+  // Close settings when clicking outside
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        settingsModalRef.current && !settingsModalRef.current.contains(e.target as Node) &&
+        gearRef.current && !gearRef.current.contains(e.target as Node)
+      ) {
+        setSettingsOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [settingsOpen]);
 
   return (
     <div style={styles.bar}>
       {/* Row 1: wordmark + nav buttons */}
       <div style={styles.row}>
+        <button onClick={onOpenAbout} title="About OpenHistory" style={styles.infoBtn}>i</button>
         <div style={styles.wordmark}>OpenHistory</div>
         <div style={{ flex: 1 }} />
-        <button onClick={onEditTerritory} style={{ ...styles.dataBtn, ...(editorMode ? styles.dataBtnActive : {}) }}>Edit Territory</button>
+        <button onClick={onEditTerritory} style={{ ...styles.dataBtn, ...(editorMode ? styles.dataBtnActive : {}) }}>Edit Borders ✎</button>
         <button onClick={onOpenData} style={styles.dataBtn}>Data Explorer ↗</button>
-        <button onClick={onOpenAbout} style={styles.dataBtn}>About</button>
-        <select
-          value={selectedLang}
-          onChange={(e) => onLangChange(e.target.value)}
-          style={styles.langSelect}
-          title="Wikipedia language"
+        {/* Gear / settings */}
+        <button
+          ref={gearRef}
+          onClick={() => setSettingsOpen((v) => !v)}
+          title="Settings"
+          style={{ ...styles.dataBtn, fontSize: 16, lineHeight: 1, padding: '4px 8px', color: settingsOpen ? '#3366cc' : '#202122', ...(settingsOpen ? styles.dataBtnActive : {}) }}
         >
-          {WIKIPEDIA_LANGUAGES.map(([code, , en]) => (
-            <option key={code} value={code}>{en}</option>
-          ))}
-        </select>
+          ⚙
+        </button>
       </div>
+
+      {/* Settings modal — rendered outside the row to escape overflow:hidden */}
+      {settingsOpen && (
+          <div ref={settingsModalRef} style={styles.settingsModal}>
+            <div style={styles.settingsRow}>
+              <label style={styles.settingsLabel}>Language</label>
+              <select
+                value={selectedLang}
+                onChange={(e) => onLangChange(e.target.value)}
+                style={styles.langSelect}
+                title="Wikipedia language"
+              >
+                {WIKIPEDIA_LANGUAGES.map(([code, native]) => (
+                  <option key={code} value={code}>{native}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+      )}
 
       {/* Row 2: polity toggles + events + locations */}
       <div style={styles.row}>
@@ -177,6 +214,25 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0 20px',
     height: 34,
     overflow: 'hidden',
+  },
+  infoBtn: {
+    width: 18,
+    height: 18,
+    borderRadius: '50%',
+    border: '1.5px solid rgba(0,0,0,0.3)',
+    background: 'transparent',
+    color: 'rgba(0,0,0,0.5)',
+    fontSize: 11,
+    fontWeight: 700,
+    fontStyle: 'italic',
+    fontFamily: 'Georgia, serif',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    padding: 0,
+    lineHeight: 1,
   },
   wordmark: {
     fontSize: 15,
@@ -240,16 +296,39 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#3366cc',
   },
   langSelect: {
-    fontSize: 12,
-    fontWeight: 600,
+    fontSize: 13,
+    fontWeight: 400,
     color: '#202122',
-    background: 'transparent',
-    border: '1px solid rgba(0,0,0,0.18)',
+    background: '#f3f4f6',
+    border: '1px solid rgba(0,0,0,0.12)',
     borderRadius: 6,
     padding: '5px 8px',
     cursor: 'pointer',
     fontFamily: 'inherit',
+    flex: 1,
+  },
+  settingsModal: {
+    position: 'fixed' as const,
+    top: 74,
+    right: 20,
+    background: '#ffffff',
+    border: '1px solid rgba(0,0,0,0.18)',
+    borderRadius: 10,
+    boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+    padding: '14px 16px',
+    zIndex: 200,
+    minWidth: 240,
+  },
+  settingsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  settingsLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#202122',
+    whiteSpace: 'nowrap' as const,
     flexShrink: 0,
-    maxWidth: 120,
   },
 };

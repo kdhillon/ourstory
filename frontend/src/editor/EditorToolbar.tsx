@@ -5,6 +5,7 @@
 interface Props {
   currentYear: number;
   dirtyCount: number;
+  undoCount: number;
   saving: boolean;
   loadState: 'loading' | 'ready' | 'error';
   error: string | null;
@@ -15,7 +16,7 @@ interface Props {
   onCancel: () => void;
 }
 
-export function EditorToolbar({ currentYear, dirtyCount, saving, loadState, error, drawMode, drawVertexCount, onToggleDraw, onSave, onCancel }: Props) {
+export function EditorToolbar({ currentYear, dirtyCount, undoCount, saving, loadState, error, drawMode, drawVertexCount, onToggleDraw, onSave, onCancel }: Props) {
   return (
     <div style={{
       position: 'fixed',
@@ -65,7 +66,16 @@ export function EditorToolbar({ currentYear, dirtyCount, saving, loadState, erro
 
       {loadState === 'ready' && dirtyCount === 0 && !drawMode && (
         <span style={{ color: '#475569', fontSize: 12 }}>
-          Drag vertices to edit borders
+          Drag · Right-click edge to add · Right-click vertex to delete · Click vertex to select
+        </span>
+      )}
+
+      {loadState === 'ready' && undoCount > 0 && !drawMode && (
+        <span
+          title={`${undoCount} action${undoCount !== 1 ? 's' : ''} in undo history`}
+          style={{ color: '#334155', fontSize: 11, cursor: 'default' }}
+        >
+          ↩ {undoCount}
         </span>
       )}
 
