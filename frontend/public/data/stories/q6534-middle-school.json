@@ -1,0 +1,152 @@
+{
+  "id": "q6534-middle-school",
+  "slug": "q6534-middle-school",
+  "anchor_qid": "Q6534",
+  "detail_level": "middle_school",
+  "title": "French Revolution",
+  "year_start": 1788,
+  "beats": [
+    {
+      "sequence": 1,
+      "chapter_title": "A Kingdom in Crisis",
+      "event_qid": "Q234081",
+      "narrative_text": "By the late 1780s, France was in serious trouble. The population had grown from 21 to 28 million, food prices were soaring after bad harvests, and the government was drowning in debt — spending half its income just paying back loans. The tax system was unfair and confusing, with nobles and clergy enjoying special exemptions while ordinary people bore the heaviest burden.",
+      "beat_title": "The Ancien Régime and Its Problems"
+    },
+    {
+      "sequence": 2,
+      "chapter_title": null,
+      "event_qid": "Q1463941",
+      "narrative_text": "With no other options left, King Louis XVI called the Estates-General — a meeting of representatives from the clergy, nobility, and common people — for the first time since 1614. The Third Estate, representing about 95% of the population, demanded that votes be counted per person rather than per group. When the king refused to settle this dispute, tensions between the three estates began to boil over.",
+      "beat_title": "The Estates-General Convenes"
+    },
+    {
+      "sequence": 3,
+      "chapter_title": "Revolution Begins",
+      "event_qid": "Q784689",
+      "narrative_text": "Frustrated by weeks of deadlock, the representatives of the Third Estate took a dramatic step: they declared themselves the National Assembly of France, claiming to represent the entire nation. They announced that all existing taxes were illegal unless approved by them. Over 100 members of the clergy soon joined them, sending shockwaves through the royal court at Versailles.",
+      "beat_title": "The Third Estate Becomes the National Assembly"
+    },
+    {
+      "sequence": 4,
+      "chapter_title": null,
+      "event_qid": "Q60022",
+      "narrative_text": "When the National Assembly arrived at their meeting hall one morning, they found the doors locked — the king had closed it to prepare for a royal session. Refusing to be silenced, they gathered in a nearby indoor tennis court and swore a solemn oath not to disband until they had written a new constitution for France. This bold act of defiance showed the king that the people's representatives would not back down.",
+      "beat_title": "The Tennis Court Oath"
+    },
+    {
+      "sequence": 5,
+      "chapter_title": null,
+      "event_qid": "Q6539",
+      "narrative_text": "On July 14, 1789, a massive crowd of Parisians stormed the Bastille, a royal fortress and prison that symbolized the king's absolute power. The attackers were searching for weapons and gunpowder, and they overwhelmed the small garrison defending it. The fall of the Bastille became the most iconic moment of the Revolution and is still celebrated as France's national holiday today.",
+      "beat_title": "Storming of the Bastille"
+    },
+    {
+      "sequence": 6,
+      "chapter_title": null,
+      "event_qid": "Q2622002",
+      "narrative_text": "Swept up in the revolutionary spirit, the National Assembly voted on the night of August 4 to abolish feudalism — the centuries-old system where peasants owed labor, taxes, and obedience to their local lords. In one dramatic session, noble privileges, church tithes, and special tax exemptions were swept away. It was one of the most radical transformations in European history.",
+      "beat_title": "Abolition of Feudalism"
+    },
+    {
+      "sequence": 7,
+      "chapter_title": null,
+      "event_qid": "Q169759",
+      "narrative_text": "The Assembly then issued the Declaration of the Rights of Man and of the Citizen, proclaiming that all men are born free and equal in rights. It guaranteed freedom of speech, freedom of religion, and the right to a fair trial. Inspired by Enlightenment ideas and the American Revolution, this document became one of the most important statements of human rights in history.",
+      "beat_title": "Declaration of the Rights of Man and of the Citizen"
+    },
+    {
+      "sequence": 8,
+      "chapter_title": null,
+      "event_qid": "Q1151917",
+      "narrative_text": "In October, thousands of women — furious about the high price of bread — marched from Paris to the royal palace at Versailles. They demanded that the king come to Paris, and after a tense standoff that nearly turned deadly, Louis XVI agreed. The royal family was essentially forced to move to Paris, where they would be under the watchful eye of the revolutionary crowds.",
+      "beat_title": "Women's March on Versailles"
+    },
+    {
+      "sequence": 9,
+      "chapter_title": "The Monarchy Crumbles",
+      "event_qid": "Q206979",
+      "narrative_text": "The Assembly passed the Civil Constitution of the Clergy, placing the Catholic Church under state control. Priests and bishops would now be elected by citizens and paid by the government. This decision deeply divided France — many devout Catholics saw it as an attack on their faith, creating bitter enemies of the Revolution in the countryside.",
+      "beat_title": "Civil Constitution of the Clergy"
+    },
+    {
+      "sequence": 10,
+      "chapter_title": null,
+      "event_qid": "Q1192894",
+      "narrative_text": "In June 1791, King Louis XVI and his family tried to secretly flee France, disguised as ordinary travelers. They were recognized and captured in the town of Varennes and brought back to Paris in humiliation. This failed escape destroyed what little trust remained between the French people and their king — many now saw him as a traitor who had tried to abandon his country.",
+      "beat_title": "The King's Flight to Varennes"
+    },
+    {
+      "sequence": 11,
+      "chapter_title": null,
+      "event_qid": "Q207318",
+      "narrative_text": "In April 1792, France declared war on Austria, beginning the French Revolutionary Wars. Revolutionary leaders hoped war would unite the country, but early defeats on the battlefield panicked the public. Foreign armies were marching toward Paris, and many feared that the king was secretly helping the enemy — pushing France toward even more radical action.",
+      "beat_title": "France Goes to War"
+    },
+    {
+      "sequence": 12,
+      "chapter_title": null,
+      "event_qid": "Q1154330",
+      "narrative_text": "On August 10, 1792, a revolutionary mob attacked the Tuileries Palace, where the royal family was living. Hundreds of the king's Swiss Guards were killed in the fierce fighting. Louis XVI and his family were arrested and imprisoned, effectively ending the monarchy. France would never be the same.",
+      "beat_title": "The Insurrection of August 10"
+    },
+    {
+      "sequence": 13,
+      "chapter_title": null,
+      "event_qid": "Q58296",
+      "narrative_text": "In September 1792, the newly elected National Convention abolished the monarchy and declared France a republic — a nation governed by the people rather than a king. The same day, French forces won a surprising victory at the Battle of Valmy, stopping the foreign invasion. It felt like the dawn of a new era, but terrible struggles lay ahead.",
+      "beat_title": "Birth of the French Republic"
+    },
+    {
+      "sequence": 14,
+      "chapter_title": "Terror and Turmoil",
+      "event_qid": "Q3062714",
+      "narrative_text": "On January 21, 1793, King Louis XVI was executed by guillotine in a public square in Paris before a massive crowd. He had been tried for treason and found guilty by the National Convention. His death sent shockwaves across Europe — other kings and queens watched in horror, and several nations declared war on France.",
+      "beat_title": "Execution of Louis XVI"
+    },
+    {
+      "sequence": 15,
+      "chapter_title": null,
+      "event_qid": "Q193547",
+      "narrative_text": "With France surrounded by enemies and torn apart by civil war, the radical Jacobins under Maximilien Robespierre took control through the Committee of Public Safety. They launched the Reign of Terror, arresting and executing anyone suspected of opposing the Revolution. About 16,000 people were sentenced to death by the Revolutionary Tribunal, including former queen Marie Antoinette and many of the Revolution's own early leaders.",
+      "beat_title": "The Reign of Terror"
+    },
+    {
+      "sequence": 16,
+      "chapter_title": null,
+      "event_qid": "Q724922",
+      "narrative_text": "The Committee of Public Safety became the real government of France, making decisions about war, food supply, and who lived or died. Led by Robespierre, it suspended the new constitution and ruled by emergency decree. While it successfully organized France's defense against foreign armies, its extreme violence created a climate of fear where no one — not even powerful revolutionaries — felt safe.",
+      "beat_title": "The Committee of Public Safety Rules France"
+    },
+    {
+      "sequence": 17,
+      "chapter_title": "The Revolution Devours Its Own",
+      "event_qid": "Q474757",
+      "narrative_text": "By July 1794, many in the Convention feared they would be Robespierre's next victims. On 9 Thermidor (July 27), they turned against him, and he was arrested and executed the very next day. The Reign of Terror was over. France breathed a collective sigh of relief, and the country began pulling back from the extremes of revolutionary violence.",
+      "beat_title": "The Thermidorian Reaction — Fall of Robespierre"
+    },
+    {
+      "sequence": 18,
+      "chapter_title": null,
+      "event_qid": "Q219817",
+      "narrative_text": "In November 1795, a new government called the Directory took charge of France, led by five directors who shared executive power. It tried to find a middle path between the radicalism of the Terror and a return to monarchy. But the Directory was weak and corrupt, facing constant threats from royalists on one side and radicals on the other.",
+      "beat_title": "The Directory Takes Power"
+    },
+    {
+      "sequence": 19,
+      "chapter_title": "Napoleon's Rise",
+      "event_qid": "Q620965",
+      "narrative_text": "On November 9, 1799, a young and ambitious general named Napoleon Bonaparte overthrew the Directory in a military coup. He established a new government called the Consulate, with himself as First Consul — essentially the ruler of France. The French Revolution, which had begun ten years earlier with dreams of liberty and equality, ended with power in the hands of one man.",
+      "beat_title": "The Coup of 18 Brumaire"
+    },
+    {
+      "sequence": 20,
+      "chapter_title": null,
+      "event_qid": "Q877619",
+      "narrative_text": "The French Revolution transformed not just France but the entire world. Its ideals of liberty, equality, and popular sovereignty inspired revolutions across Europe and the Americas for generations to come. The Declaration of the Rights of Man remains a cornerstone of modern democracy, and the Revolution's values continue to shape French identity and political debate to this day.",
+      "beat_title": "Legacy of the Revolution"
+    }
+  ],
+  "generated_from": "wikipedia+claude",
+  "status": "draft"
+}

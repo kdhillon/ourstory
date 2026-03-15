@@ -87,6 +87,36 @@ export interface FeatureProperties {
   pipelineRun?: string;
 }
 
+export interface StoryBeat {
+  sequence: number;
+  chapter_title: string | null;
+  event_qid: string | null;
+  beat_title: string;
+  narrative_text: string;
+  date?: string; // only for narrative-only beats (no event_qid)
+}
+
+export interface StoryIndexEntry {
+  slug: string;
+  title: string;
+  anchor_qid: string;
+  detail_level: string;
+  description?: string;
+  beat_count: number;
+}
+
+export interface Story {
+  id: string;
+  slug: string;
+  anchor_qid: string;
+  detail_level: string;
+  title: string;
+  year_start: number | null;
+  beats: StoryBeat[];
+  generated_from: string;
+  status: 'draft' | 'published';
+}
+
 export interface TimelineState {
   currentYear: number;
   stepSize: number;

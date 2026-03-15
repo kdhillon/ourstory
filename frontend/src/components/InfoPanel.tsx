@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { FeatureProperties, Category } from '../types';
+import type { FeatureProperties, Category, StoryIndexEntry } from '../types';
 import type { StackInfo } from './MapView';
 import { CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
 import { CATEGORY_SVGS, colorSvg, svgDataUri } from '../theme/icons';
@@ -38,6 +38,7 @@ interface Props {
   onToggleHiddenNation?: (polityId: string) => void;
   onHideFeature?: (id: string, type: 'polity' | 'event') => void;
   selectedLang?: string;
+  onStartStory?: (slug: string) => void;
 }
 
 function wikiApi(lang: string) {
@@ -70,7 +71,7 @@ function PencilIcon() {
   );
 }
 
-export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeature, wikiAuth, onAuth, onFeatureUpdated, hiddenNations, onToggleHiddenNation, onHideFeature, selectedLang = 'en' }: Props) {
+export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeature, wikiAuth, onAuth, onFeatureUpdated, hiddenNations, onToggleHiddenNation, onHideFeature, selectedLang = 'en', onStartStory }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [expandedWidth, setExpandedWidth] = useState(468);
   const [editField, setEditField] = useState<'date' | 'location' | 'capital' | 'sovereign' | null>(null);
@@ -88,6 +89,16 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
   const [imageExpanded, setImageExpanded] = useState(false);
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false);
   const [categorySaving, setCategorySaving] = useState(false);
+
+  const [storyIndex, setStoryIndex] = useState<StoryIndexEntry[]>([]);
+
+  // Load story index once
+  useEffect(() => {
+    fetch('/data/stories/index.json')
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: StoryIndexEntry[]) => setStoryIndex(data))
+      .catch(() => {});
+  }, []);
 
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -519,9 +530,6 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
           })()}
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {expanded && (
-            <button style={styles.iconBtn} onClick={() => setExpanded(false)} title="Collapse">←</button>
-          )}
           <button style={styles.iconBtn} onClick={onClose} title="Close">✕</button>
         </div>
       </div>
@@ -986,6 +994,34 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
         ) : null}
       </div>
 
+      {/* Stories featuring this event */}
+      {feature.featureType === 'event' && onStartStory && (() => {
+        const matchingStories = storyIndex.filter((s) => s.anchor_qid === feature.wikidataQid);
+        if (matchingStories.length === 0) return null;
+        return (
+          <div style={styles.storiesSection}>
+            <div style={styles.storiesSectionLabel}>Stories featuring this event</div>
+            {matchingStories.map((entry) => (
+              <div key={entry.slug} style={styles.storyCard}>
+                <div style={styles.storyCardMeta}>
+                  <span style={styles.storyCardTitle}>{entry.title}</span>
+                  <span style={styles.storyCardBadge}>{entry.detail_level.replace('_', ' ')}</span>
+                </div>
+                {entry.description && (
+                  <p style={styles.storyCardDesc}>{entry.description}</p>
+                )}
+                <div style={styles.storyCardFooter}>
+                  <span style={styles.storyCardBeats}>{entry.beat_count} beats</span>
+                  <button style={styles.storyStartBtn} onClick={() => onStartStory(entry.slug)}>
+                    Start →
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* Footer */}
       <div style={{ ...styles.footer, borderTop: expanded ? '1px solid rgba(0,0,0,0.07)' : 'none' }}>
         {!expanded ? (
@@ -1332,6 +1368,74 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sectionBody: {
     padding: '0 16px 14px',
+  },
+  storiesSection: {
+    borderTop: '1px solid rgba(0,0,0,0.07)',
+    padding: '12px 16px',
+    flexShrink: 0,
+  },
+  storiesSectionLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.07em',
+    color: '#72777d',
+    marginBottom: 8,
+  },
+  storyCard: {
+    background: '#f0f4ff',
+    borderRadius: 8,
+    padding: '10px 12px',
+    marginBottom: 6,
+    border: '1px solid rgba(26,35,126,0.12)',
+  },
+  storyCardMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  storyCardTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#202122',
+    flex: 1,
+  },
+  storyCardBadge: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: '#1a237e',
+    background: 'rgba(26,35,126,0.1)',
+    borderRadius: 4,
+    padding: '2px 6px',
+    textTransform: 'capitalize' as const,
+    flexShrink: 0,
+  },
+  storyCardDesc: {
+    fontSize: 12,
+    color: '#555',
+    margin: '0 0 8px',
+    lineHeight: 1.4,
+  },
+  storyCardFooter: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  storyCardBeats: {
+    fontSize: 11,
+    color: '#72777d',
+  },
+  storyStartBtn: {
+    background: '#1a237e',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 6,
+    fontSize: 12,
+    fontWeight: 600,
+    padding: '5px 12px',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
   footer: {
     display: 'flex',

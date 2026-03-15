@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Category } from '../types';
 import { EVENT_CATEGORIES, LOCATION_CATEGORIES, CATEGORY_COLORS, CATEGORY_LABELS } from '../theme/categories';
 import { WIKIPEDIA_LANGUAGES } from '../lib/languages';
+import type { WindowInfo } from '../hooks/useEventSource';
 
 interface Props {
   activeCategories: Set<Category>;
@@ -16,6 +17,27 @@ interface Props {
   editorMode: boolean;
   selectedLang: string;
   onLangChange: (lang: string) => void;
+  // Data stats (from DataOverlay)
+  windowInfo: WindowInfo | null;
+  eventsLoading: boolean;
+  eventsError: string | null;
+  territoriesLoading: boolean;
+  territoriesError: string | null;
+  seedLoading: boolean;
+  locationCount: number;
+  polityCount: number;
+}
+
+function Spinner() {
+  return (
+    <>
+      <style>{`@keyframes oh-spin { to { transform: rotate(360deg); } }`}</style>
+      <svg width="10" height="10" viewBox="0 0 10 10" style={{ animation: 'oh-spin 0.75s linear infinite', flexShrink: 0 }}>
+        <circle cx="5" cy="5" r="3.5" fill="none" stroke="rgba(0,0,0,0.15)" strokeWidth="1.5" />
+        <path d="M5 1.5 A3.5 3.5 0 0 1 8.5 5" fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </>
+  );
 }
 
 function GroupLabel({ label, cats, activeSet, onToggle }: {
@@ -93,7 +115,7 @@ function ChipGroup({ cats, activeCategories, onToggle }: {
   );
 }
 
-export function CategoryFilter({ activeCategories, onToggle, showBorders, onToggleBorders, showOtherPolities, onToggleOtherPolities, onOpenData, onOpenAbout, onEditTerritory, editorMode, selectedLang, onLangChange }: Props) {
+export function CategoryFilter({ activeCategories, onToggle, showBorders, onToggleBorders, showOtherPolities, onToggleOtherPolities, onOpenData, onOpenAbout, onEditTerritory, editorMode, selectedLang, onLangChange, windowInfo, eventsLoading, eventsError, territoriesLoading, territoriesError, seedLoading, locationCount, polityCount }: Props) {
   const bordersColor = '#607D8B';
   const otherPolitiesColor = '#9C27B0';
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -151,6 +173,37 @@ export function CategoryFilter({ activeCategories, onToggle, showBorders, onTogg
                 ))}
               </select>
             </div>
+            <hr style={{ border: 'none', borderTop: '1px solid rgba(0,0,0,0.08)', margin: '10px 0' }} />
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.35)', marginBottom: 8 }}>Data</div>
+            {/* Events */}
+            <div style={styles.statsRow}>
+              <span style={styles.statsLabel}>Events</span>
+              {eventsLoading ? <Spinner /> : windowInfo ? (
+                <>
+                  <span style={styles.statsRange}>{windowInfo.yearMin} – {windowInfo.yearMax}</span>
+                  <span style={styles.statsBadge}>{windowInfo.count.toLocaleString()}</span>
+                </>
+              ) : (
+                <span style={styles.statsNone}>none</span>
+              )}
+            </div>
+            {/* Locations */}
+            <div style={styles.statsRow}>
+              <span style={styles.statsLabel}>Locations</span>
+              {seedLoading ? <Spinner /> : <span style={styles.statsBadge}>{locationCount.toLocaleString()}</span>}
+            </div>
+            {/* Polities */}
+            <div style={styles.statsRow}>
+              <span style={styles.statsLabel}>Polities</span>
+              {seedLoading ? <Spinner /> : <span style={styles.statsBadge}>{polityCount.toLocaleString()}</span>}
+            </div>
+            {/* Territories */}
+            <div style={styles.statsRow}>
+              <span style={styles.statsLabel}>Territories</span>
+              {territoriesLoading ? <Spinner /> : <span style={styles.statsNone}>active</span>}
+            </div>
+            {eventsError && <div style={{ fontSize: 11, color: '#c0392b', marginTop: 4 }}>⚠ events: {eventsError}</div>}
+            {territoriesError && <div style={{ fontSize: 11, color: '#c0392b', marginTop: 4 }}>⚠ territories: {territoriesError}</div>}
           </div>
       )}
 
@@ -330,5 +383,34 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#202122',
     whiteSpace: 'nowrap' as const,
     flexShrink: 0,
+  },
+  statsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 5,
+  },
+  statsLabel: {
+    fontSize: 12,
+    color: 'rgba(0,0,0,0.5)',
+    minWidth: 64,
+    flexShrink: 0,
+  },
+  statsRange: {
+    fontSize: 11,
+    color: 'rgba(0,0,0,0.45)',
+  },
+  statsBadge: {
+    marginLeft: 'auto',
+    background: 'rgba(0,0,0,0.07)',
+    borderRadius: 4,
+    padding: '1px 6px',
+    fontSize: 11,
+    color: 'rgba(0,0,0,0.6)',
+  },
+  statsNone: {
+    marginLeft: 'auto',
+    fontSize: 11,
+    color: 'rgba(0,0,0,0.3)',
   },
 };

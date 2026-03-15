@@ -169,7 +169,7 @@ def build_event_features_bulk(cur, year_min: int, year_max: int) -> list[dict]:
     """
     cur.execute("""
         SELECT
-          e.id, e.slug, e.title, e.wikipedia_title, e.wikipedia_summary, e.wikipedia_url,
+          e.id, e.wikidata_qid, e.slug, e.title, e.wikipedia_title, e.wikipedia_summary, e.wikipedia_url,
           e.year_start, e.month_start, e.day_start,
           e.year_end, e.month_end, e.day_end,
           e.date_is_fuzzy, e.date_range_min, e.date_range_max,
@@ -225,6 +225,7 @@ def build_event_features_bulk(cur, year_min: int, year_max: int) -> list[dict]:
             "properties": {
                 "featureType": "event",
                 "id": str(row["id"]),
+                "wikidataQid": row["wikidata_qid"],
                 "slug": row["slug"] or (row["wikipedia_title"] or "").replace(" ", "_"),
                 "title": row["title"],
                 "wikipediaTitle": row["wikipedia_title"],
@@ -924,6 +925,106 @@ def get_events(year_min: int, year_max: int):
         conn.close()
 
 
+@app.get("/api/events/by-qids")
+def get_events_by_qids(qids: str):
+    """
+    Return specific events by Wikidata QIDs as a GeoJSON FeatureCollection.
+    Used by the story player to pre-fetch beat event data.
+
+    Query param: qids=Q1,Q2,Q3 (comma-separated)
+    """
+    qid_list = [q.strip() for q in qids.split(",") if q.strip().startswith("Q")]
+    if not qid_list:
+        return {"type": "FeatureCollection", "features": [], "count": 0}
+
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+              e.id, e.wikidata_qid, e.slug, e.title, e.wikipedia_title, e.wikipedia_summary, e.wikipedia_url,
+              e.year_start, e.month_start, e.day_start,
+              e.year_end, e.month_end, e.day_end,
+              e.date_is_fuzzy, e.date_range_min, e.date_range_max,
+              e.location_level, e.location_wikidata_qid,
+              CASE WHEN e.location_level = 'point' THEN e.lng ELSE l.lng END AS lng,
+              CASE WHEN e.location_level = 'point' THEN e.lat ELSE l.lat END AS lat,
+              e.location_name,
+              l.slug AS location_slug,
+              e.categories, e.p31_qids, e.part_of_qids,
+              e.sitelinks_count, e.data_version, e.pipeline_run
+            FROM events e
+            LEFT JOIN locations l ON e.location_wikidata_qid = l.wikidata_qid
+            WHERE e.wikidata_qid = ANY(%s)
+        """, (qid_list,))
+        rows = cur.fetchall()
+
+        all_qids: list[str] = []
+        for row in rows:
+            all_qids.extend(row["part_of_qids"] or [])
+        qid_map: dict = {}
+        if all_qids:
+            cur.execute(
+                "SELECT wikidata_qid, title, slug FROM events WHERE wikidata_qid = ANY(%s)",
+                (list(set(all_qids)),),
+            )
+            qid_map = {r["wikidata_qid"]: {"title": r["title"], "slug": r["slug"]} for r in cur.fetchall()}
+
+        features = []
+        for row in rows:
+            part_of_resolved = [
+                {"qid": qid, "title": qid_map[qid]["title"], "slug": qid_map[qid]["slug"]}
+                for qid in (row["part_of_qids"] or [])
+                if qid in qid_map
+            ]
+            lng, lat = row["lng"], row["lat"]
+            geometry = (
+                {"type": "Point", "coordinates": [float(lng), float(lat)]}
+                if lng is not None and lat is not None
+                else None
+            )
+            features.append({
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {
+                    "featureType": "event",
+                    "id": str(row["id"]),
+                    "wikidataQid": row["wikidata_qid"],
+                    "slug": row["slug"] or (row["wikipedia_title"] or "").replace(" ", "_"),
+                    "title": row["title"],
+                    "wikipediaTitle": row["wikipedia_title"],
+                    "wikipediaSummary": row["wikipedia_summary"] or "",
+                    "wikipediaUrl": row["wikipedia_url"],
+                    "yearStart": row["year_start"],
+                    "monthStart": row["month_start"],
+                    "dayStart": row["day_start"],
+                    "yearEnd": row["year_end"],
+                    "monthEnd": row["month_end"],
+                    "dayEnd": row["day_end"],
+                    "dateIsFuzzy": row["date_is_fuzzy"],
+                    "dateRangeMin": row["date_range_min"],
+                    "dateRangeMax": row["date_range_max"],
+                    "locationLevel": row["location_level"],
+                    "locationName": row["location_name"] or "",
+                    "locationSlug": row["location_slug"],
+                    "locationWikidataQid": row["location_wikidata_qid"],
+                    "categories": row["categories"] or [],
+                    "primaryCategory": (row["categories"] or ["unknown"])[0],
+                    "wikidataClasses": row["p31_qids"] or [],
+                    "partOf": row["part_of_qids"] or [],
+                    "partOfResolved": part_of_resolved,
+                    "sitelinksCount": row["sitelinks_count"],
+                    "yearDisplay": display_year(row["year_start"]) if row["year_start"] is not None else "Unknown",
+                    "dataVersion": row["data_version"],
+                    "pipelineRun": row["pipeline_run"],
+                },
+            })
+
+        return {"type": "FeatureCollection", "features": features, "count": len(features)}
+    finally:
+        conn.close()
+
+
 @app.post("/api/territories/{territory_id}/assign", status_code=200)
 async def assign_territory(territory_id: str, request: Request, _: None = Depends(require_write_secret)):
     """
@@ -1187,10 +1288,14 @@ def unlink_territory(territory_id: str, _: None = Depends(require_write_secret))
 
 
 @app.get("/api/territories")
-def get_territories(year_min: int, year_max: int):
+def get_territories(year_min: int, year_max: int, source: str = "hb"):
     """
     Return territory rows active during [year_min, year_max] as a GeoJSON FeatureCollection.
+    source: 'hb' (historical-basemaps, default) or 'ohm' (OpenHistoricalMap)
     """
+    if source not in ("hb", "ohm"):
+        raise HTTPException(status_code=400, detail="source must be 'hb' or 'ohm'")
+
     conn = get_conn()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1198,14 +1303,16 @@ def get_territories(year_min: int, year_max: int):
         cur.execute("""
             SELECT t.id, t.hb_name, t.hb_abbrevn, t.border_precision, t.boundary,
                    t.year_start, t.year_end, t.accuracy, t.explicitly_unlinked, t.parent_id,
+                   t.source, t.ohm_name, t.ohm_admin_level, t.ohm_relation_id,
                    t.polity_id, p.slug AS polity_slug, p.name AS polity_name, p.polity_type,
                    p.year_start AS polity_year_start, p.year_end AS polity_year_end
             FROM territories t
             LEFT JOIN polities p ON p.id = t.polity_id
             WHERE t.year_start <= %(year_max)s
               AND (t.year_end IS NULL OR t.year_end >= %(year_min)s)
-            ORDER BY t.year_start, t.hb_name
-        """, {"year_min": year_min, "year_max": year_max})
+              AND t.source = %(source)s
+            ORDER BY t.year_start, COALESCE(t.hb_name, t.ohm_name)
+        """, {"year_min": year_min, "year_max": year_max, "source": source})
         rows = cur.fetchall()
 
         features = []
@@ -1215,6 +1322,9 @@ def get_territories(year_min: int, year_max: int):
 
             effective_polity_id = None if tr["explicitly_unlinked"] else tr["polity_id"]
 
+            # Display name: hb_name for HB rows, ohm_name for OHM rows
+            display_name = tr["hb_name"] or tr["ohm_name"]
+
             features.append({
                 "type": "Feature",
                 "geometry": tr["boundary"],
@@ -1223,7 +1333,7 @@ def get_territories(year_min: int, year_max: int):
                     "polygonId":          str(tr["id"]),
                     "yearStart":          tr["year_start"],
                     "yearEnd":            tr["year_end"],
-                    "hbName":             tr["hb_name"],
+                    "hbName":             display_name,
                     "hbAbbrevn":          tr["hb_abbrevn"],
                     "borderPrecision":    tr["border_precision"],
                     "explicitlyUnlinked": tr["explicitly_unlinked"],
@@ -1235,6 +1345,10 @@ def get_territories(year_min: int, year_max: int):
                     "polityYearEnd":      tr["polity_year_end"],
                     "accuracy":           tr["accuracy"],
                     "_color":             color if not tr["explicitly_unlinked"] else "#78909C",
+                    # OHM-specific fields (None for HB rows)
+                    "ohmName":            tr["ohm_name"],
+                    "ohmAdminLevel":      tr["ohm_admin_level"],
+                    "ohmRelationId":      tr["ohm_relation_id"],
                 },
             })
 
@@ -1245,6 +1359,142 @@ def get_territories(year_min: int, year_max: int):
             "yearMin": year_min,
             "yearMax": year_max,
         }
+    finally:
+        conn.close()
+
+
+# ── OHM territory links ───────────────────────────────────────────────────────
+# Lightweight polity→OHM-relation mapping for coloring live OHM vector tiles.
+# No geometry stored here — tiles are fetched directly from vtiles.openhistoricalmap.org.
+
+
+@app.get("/api/ohm-links")
+def get_ohm_links():
+    """Return all OHM territory links with resolved polity colors."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT l.id, l.ohm_relation_id, l.ohm_name, l.ohm_wikidata_qid,
+                   l.ohm_admin_level, l.explicitly_unlinked,
+                   l.polity_id, p.name AS polity_name, p.polity_type,
+                   p.slug AS polity_slug, p.wikidata_qid AS polity_wikidata_qid
+            FROM ohm_territory_links l
+            LEFT JOIN polities p ON p.id = l.polity_id
+            ORDER BY l.ohm_relation_id
+        """)
+        rows = cur.fetchall()
+        links = []
+        for r in rows:
+            polity_type = r["polity_type"]
+            color = _POLITY_COLORS.get(polity_type, "#607D8B") if polity_type else "#78909C"
+            effective_polity_id = None if r["explicitly_unlinked"] else r["polity_id"]
+            links.append({
+                "id":                str(r["id"]),
+                "ohmRelationId":     r["ohm_relation_id"],
+                "ohmName":           r["ohm_name"],
+                "ohmWikidataQid":    r["ohm_wikidata_qid"],
+                "ohmAdminLevel":     r["ohm_admin_level"],
+                "polityId":          str(effective_polity_id) if effective_polity_id else None,
+                "polityName":        r["polity_name"] if not r["explicitly_unlinked"] else None,
+                "polityType":        polity_type if not r["explicitly_unlinked"] else None,
+                "politySlug":        r["polity_slug"] if not r["explicitly_unlinked"] else None,
+                "color":             color if effective_polity_id else "#78909C",
+                "explicitlyUnlinked": r["explicitly_unlinked"],
+            })
+        return {"links": links}
+    finally:
+        conn.close()
+
+
+_OHM_DATE_SUFFIX = re.compile(r'\s*\(\d{1,4}(?:\s*[-\u2013]\s*(?:\d{1,4}|present))?\)\s*$')
+
+
+@app.post("/api/ohm-links", dependencies=[Depends(require_write_secret)])
+async def upsert_ohm_link(request: Request):
+    """Create or update an OHM territory → polity link.
+
+    ohm_name is normalised to a base name (date suffix stripped) so that one
+    row covers all temporal slices of the same entity, e.g. both
+    'French Republic (1800)' and 'French Republic (1801-1804)' upsert into
+    the single row keyed by 'French Republic'.
+    """
+    body = await request.json()
+    # Strip trailing " (YYYY)" / " (YYYY-YYYY)" from the territory name so that
+    # the link applies to every temporal slice with the same base name.
+    raw_name = body["ohmName"]
+    base_name = _OHM_DATE_SUFFIX.sub('', raw_name).strip() if raw_name else raw_name
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            INSERT INTO ohm_territory_links
+              (ohm_name, ohm_wikidata_qid, ohm_admin_level, polity_id, explicitly_unlinked)
+            VALUES
+              (%(ohm_name)s, %(ohm_wikidata_qid)s, %(ohm_admin_level)s, %(polity_id)s, FALSE)
+            ON CONFLICT (ohm_name) DO UPDATE SET
+              ohm_wikidata_qid = EXCLUDED.ohm_wikidata_qid,
+              ohm_admin_level  = EXCLUDED.ohm_admin_level,
+              polity_id        = EXCLUDED.polity_id,
+              explicitly_unlinked = FALSE
+            RETURNING id
+        """, {
+            "ohm_name":        base_name,
+            "ohm_wikidata_qid": body.get("ohmWikidataQid"),
+            "ohm_admin_level": body.get("ohmAdminLevel"),
+            "polity_id":       body.get("polityId"),
+        })
+        row = cur.fetchone()
+        conn.commit()
+        return {"id": str(row["id"])}
+    finally:
+        conn.close()
+
+
+@app.patch("/api/ohm-links/{link_id}/unlink", dependencies=[Depends(require_write_secret)])
+def unlink_ohm_territory(link_id: str):
+    """Mark an OHM territory link as explicitly unlinked (clears polity assignment)."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE ohm_territory_links SET explicitly_unlinked = TRUE, polity_id = NULL WHERE id = %(id)s",
+            {"id": link_id},
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, f"OHM link {link_id} not found.")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.post("/api/ohm-links/suppress", dependencies=[Depends(require_write_secret)])
+async def suppress_ohm_link(request: Request):
+    """Suppress an auto-matched OHM territory by name.
+
+    Creates or updates a link row with explicitly_unlinked=TRUE so that
+    rebuildColors skips auto-matching this territory name.
+    """
+    body = await request.json()
+    raw_name = body.get("ohmName") or ""
+    ohm_name = _OHM_DATE_SUFFIX.sub("", raw_name).strip()
+    if not ohm_name:
+        raise HTTPException(400, "ohmName is required")
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ohm_territory_links (ohm_name, explicitly_unlinked, polity_id)
+            VALUES (%(ohm_name)s, TRUE, NULL)
+            ON CONFLICT (ohm_name) DO UPDATE SET
+              explicitly_unlinked = TRUE,
+              polity_id = NULL
+            """,
+            {"ohm_name": ohm_name},
+        )
+        conn.commit()
+        return {"ok": True}
     finally:
         conn.close()
 

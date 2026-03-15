@@ -21,8 +21,9 @@ import psycopg2.extras
 
 DATABASE_URL = os.environ["DATABASE_URL"]  # set via: export DATABASE_URL=$(railway variables get DATABASE_URL)
 
-OUT_PATH       = Path(__file__).parent.parent / "frontend" / "public" / "data" / "seed.geojson"
-TERR_OUT_PATH  = Path(__file__).parent.parent / "frontend" / "public" / "data" / "territories.geojson"
+OUT_PATH            = Path(__file__).parent.parent / "frontend" / "public" / "data" / "seed.geojson"
+TERR_OUT_PATH       = Path(__file__).parent.parent / "frontend" / "public" / "data" / "territories.geojson"
+TERR_OHM_OUT_PATH   = Path(__file__).parent.parent / "frontend" / "public" / "data" / "territories-ohm.geojson"
 
 # Polity type → fill color (must match frontend theme/categories.ts CATEGORY_COLORS)
 _POLITY_COLORS = {
@@ -222,6 +223,7 @@ def export(conn: "psycopg2.connection | None" = None) -> int:
           p.polity_type, p.year_start AS polity_year_start, p.year_end AS polity_year_end
         FROM territories t
         LEFT JOIN polities p ON p.id = t.polity_id
+        WHERE t.source = 'hb'
         ORDER BY t.year_start, t.hb_name
     """)
     territory_rows = cur.fetchall()
@@ -263,6 +265,69 @@ def export(conn: "psycopg2.connection | None" = None) -> int:
     }
     TERR_OUT_PATH.write_text(json.dumps(territories_geojson))
     print(f"  {len(territory_features)} territory polygons → {TERR_OUT_PATH.name}", file=sys.stderr)
+
+    # ── OHM Territory polygons ────────────────────────────────────────────────
+    cur.execute("SELECT COUNT(*) FROM territories WHERE source = 'ohm'")
+    ohm_count_row = cur.fetchone()
+    ohm_total = ohm_count_row[0] if ohm_count_row else 0
+
+    if ohm_total > 0:
+        cur.execute("""
+            SELECT
+              t.id, t.ohm_name, t.ohm_admin_level, t.ohm_relation_id, t.boundary,
+              t.year_start, t.year_end, t.accuracy, t.explicitly_unlinked,
+              t.polity_id,
+              p.slug AS polity_slug, p.name AS polity_name,
+              p.polity_type, p.year_start AS polity_year_start, p.year_end AS polity_year_end
+            FROM territories t
+            LEFT JOIN polities p ON p.id = t.polity_id
+            WHERE t.source = 'ohm'
+            ORDER BY t.year_start, t.ohm_name
+        """)
+        ohm_rows = cur.fetchall()
+
+        ohm_features = []
+        for tr in ohm_rows:
+            polity_type = tr["polity_type"]
+            explicitly_unlinked = tr["explicitly_unlinked"]
+            color = _POLITY_COLORS.get(polity_type, "#607D8B") if (polity_type and not explicitly_unlinked) else "#78909C"
+            effective_polity_id = None if explicitly_unlinked else tr["polity_id"]
+
+            ohm_features.append({
+                "type": "Feature",
+                "geometry": tr["boundary"],
+                "properties": {
+                    "featureType":        "territory",
+                    "polygonId":          str(tr["id"]),
+                    "yearStart":          tr["year_start"],
+                    "yearEnd":            tr["year_end"],
+                    "hbName":             tr["ohm_name"],
+                    "hbAbbrevn":          None,
+                    "borderPrecision":    None,
+                    "explicitlyUnlinked": explicitly_unlinked,
+                    "polityId":           str(effective_polity_id) if effective_polity_id else None,
+                    "politySlug":         tr["polity_slug"] if not explicitly_unlinked else None,
+                    "polityName":         tr["polity_name"] if not explicitly_unlinked else None,
+                    "polityType":         polity_type if not explicitly_unlinked else None,
+                    "polityYearStart":    tr["polity_year_start"],
+                    "polityYearEnd":      tr["polity_year_end"],
+                    "accuracy":           tr["accuracy"],
+                    "_color":             color,
+                    "ohmName":            tr["ohm_name"],
+                    "ohmAdminLevel":      tr["ohm_admin_level"],
+                    "ohmRelationId":      tr["ohm_relation_id"],
+                },
+            })
+
+        ohm_geojson = {
+            "type": "FeatureCollection",
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "features": ohm_features,
+        }
+        TERR_OHM_OUT_PATH.write_text(json.dumps(ohm_geojson))
+        print(f"  {len(ohm_features)} OHM territory polygons → {TERR_OHM_OUT_PATH.name}", file=sys.stderr)
+    else:
+        print("  No OHM territory rows found — skipping territories-ohm.geojson", file=sys.stderr)
 
     if close_conn:
         cur.close()

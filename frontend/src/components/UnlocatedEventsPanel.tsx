@@ -124,10 +124,6 @@ export function UnlocatedEventsPanel({ eventFeatures, currentDateInt, stepSize, 
 
   return (
     <div style={{
-      position: 'absolute',
-      bottom: 10,
-      left: 10,
-      zIndex: 10,
       background: '#ffffff',
       borderRadius: 12,
       border: '1px solid rgba(0,0,0,0.1)',
@@ -138,6 +134,7 @@ export function UnlocatedEventsPanel({ eventFeatures, currentDateInt, stepSize, 
       maxWidth: 240,
       minWidth: collapsed ? 0 : 200,
     }}>
+
       {/* Header */}
       <div
         style={{

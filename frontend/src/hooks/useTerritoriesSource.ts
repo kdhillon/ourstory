@@ -40,9 +40,10 @@ function computeWindow(currentYear: number, stepSize: number): { yearMin: number
 async function fetchWindow(
   yearMin: number,
   yearMax: number,
+  source: 'hb' | 'ohm',
   signal: AbortSignal,
 ): Promise<GeoJSON.FeatureCollection & { yearMin: number; yearMax: number; count: number }> {
-  const url = `${API_BASE}/territories?year_min=${yearMin}&year_max=${yearMax}`;
+  const url = `${API_BASE}/territories?year_min=${yearMin}&year_max=${yearMax}&source=${source}`;
   const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`GET /api/territories failed (${res.status})`);
   return res.json();
@@ -51,13 +52,14 @@ async function fetchWindow(
 export function useTerritoriesSource(opts: {
   currentYear: number;
   stepSize: number;
+  source?: 'hb' | 'ohm';
 }): {
   territoryFeatures: GeoJSON.Feature[];
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
 } {
-  const { currentYear, stepSize } = opts;
+  const { currentYear, stepSize, source = 'hb' } = opts;
 
   const [currentWindow, setCurrentWindow] = useState<WindowData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -67,6 +69,22 @@ export function useTerritoriesSource(opts: {
   const prefetchAbortRef = useRef<AbortController | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);
   const fetchIdRef = useRef(0);
+
+  // Reset loaded window whenever the source changes so we refetch immediately
+  const prevSourceRef = useRef(source);
+  if (prevSourceRef.current !== source) {
+    prevSourceRef.current = source;
+    // Synchronous state mutation during render is intentional here to avoid a stale-window flash
+    // We can't call setState during render, so we use a ref to signal the effect
+  }
+  useEffect(() => {
+    if (prevSourceRef.current !== source) {
+      prevSourceRef.current = source;
+    }
+    setCurrentWindow(null);
+    prefetchRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   const doFetch = useCallback(async (yearMin: number, yearMax: number) => {
     fetchAbortRef.current?.abort();
@@ -78,7 +96,7 @@ export function useTerritoriesSource(opts: {
     setError(null);
 
     try {
-      const data = await fetchWindow(yearMin, yearMax, ctrl.signal);
+      const data = await fetchWindow(yearMin, yearMax, source, ctrl.signal);
       if (fetchIdRef.current !== id) return;
       setCurrentWindow({ yearMin, yearMax, features: data.features });
       prefetchRef.current = null;
@@ -89,7 +107,7 @@ export function useTerritoriesSource(opts: {
     } finally {
       if (fetchIdRef.current === id) setIsLoading(false);
     }
-  }, []);
+  }, [source]);
 
   const doPrefetch = useCallback(async (yearMin: number, yearMax: number) => {
     if (
@@ -103,13 +121,13 @@ export function useTerritoriesSource(opts: {
     prefetchAbortRef.current = ctrl;
 
     try {
-      const data = await fetchWindow(yearMin, yearMax, ctrl.signal);
+      const data = await fetchWindow(yearMin, yearMax, source, ctrl.signal);
       if (ctrl.signal.aborted) return;
       prefetchRef.current = { yearMin, yearMax, features: data.features };
     } catch {
       // Prefetch failures are silent
     }
-  }, []);
+  }, [source]);
 
   // Window management: fetch on exit, prefetch near edges
   useEffect(() => {

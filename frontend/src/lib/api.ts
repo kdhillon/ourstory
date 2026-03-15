@@ -105,6 +105,27 @@ export async function unlinkPolygon(polygonId: string): Promise<void> {
   if (!res.ok) throw new Error(`API PATCH unlink territory failed (${res.status})`);
 }
 
+/**
+ * Mark an OHM territory link as explicitly unlinked (clears polity assignment).
+ */
+export async function unlinkOhmLink(linkId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/ohm-links/${linkId}/unlink`, { method: 'PATCH', headers: withWriteSecret() });
+  if (!res.ok) throw new Error(`API PATCH unlink OHM link failed (${res.status})`);
+}
+
+/**
+ * Suppress an auto-matched OHM territory by name (no existing DB link).
+ * Upserts a row with explicitly_unlinked=TRUE so rebuildColors skips it.
+ */
+export async function suppressOhmLink(ohmName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/ohm-links/suppress`, {
+    method: 'POST',
+    headers: withWriteSecret({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ohmName }),
+  });
+  if (!res.ok) throw new Error(`API POST suppress OHM link failed (${res.status})`);
+}
+
 export interface HiddenNation {
   polityId: string;
   hideUntilYear: number;

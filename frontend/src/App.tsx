@@ -2,22 +2,25 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { checkLogin, fetchEntityTranslations } from './lib/wikidataApi';
 import { TranslationContext } from './lib/TranslationContext';
-import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, fetchManualPolities, fetchHiddenFeatures, setFeatureHidden } from './lib/api';
+import { fetchOverrides, fetchPolityOverrides, fetchHiddenNations, addHiddenNation, removeHiddenNation, removeTerritoryMappingsByPolity, unlinkPolygon, unlinkOhmLink, suppressOhmLink, fetchManualPolities, fetchHiddenFeatures, setFeatureHidden } from './lib/api';
 import { MapView } from './components/MapView';
 import { TerritoryEditor } from './editor/TerritoryEditor';
 import { TerritoryMappingModal } from './components/TerritoryMappingModal';
+import { OhmMappingModal } from './components/OhmMappingModal';
 import { TimelineBar, TIMELINE_BAR_HEIGHT } from './components/TimelineBar';
 import { InfoPanel } from './components/InfoPanel';
 import { CategoryFilter } from './components/CategoryFilter';
 import { DataExplorer } from './components/DataExplorer';
 import { AboutPage } from './components/AboutPage';
 import { WelcomeModal, shouldShowWelcome } from './components/WelcomeModal';
-import { MajorEventsPanel, MAJOR_EVENTS_PANEL_HEIGHT } from './components/MajorEventsPanel';
-import { DataOverlay } from './components/DataOverlay';
+import { MajorEventsPanel } from './components/MajorEventsPanel';
 import { UnlocatedEventsPanel } from './components/UnlocatedEventsPanel';
-import { useTimeline, encodeDate, decodeDate, STEP_YEAR } from './hooks/useTimeline';
+import { StoryPanel } from './components/StoryPanel';
+import { useTimeline, encodeDate, decodeDate, STEP_YEAR, STEP_DAY } from './hooks/useTimeline';
+import { useStory } from './hooks/useStory';
 import { useEventSource } from './hooks/useEventSource';
 import { useTerritoriesSource } from './hooks/useTerritoriesSource';
+import { useOhmLinks } from './hooks/useOhmLinks';
 import type { FeatureProperties, Category } from './types';
 import type { StackInfo, ZoomRequest } from './components/MapView';
 import { EVENT_CATEGORIES, POLITY_CATEGORIES } from './theme/categories';
@@ -74,6 +77,7 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname);
 
   const timeline = useTimeline();
+  const { story, beatIndex, setBeatIndex, currentBeat, currentBeatEvent, beatEvents, beatCenters, loadStory, exitStory } = useStory();
   const currentYear = decodeDate(timeline.currentDateInt).year;
 
   // Debounce year for API calls — UI renders at full speed but DB requests only
@@ -87,8 +91,12 @@ export default function App() {
   const { eventFeatures, windowInfo, isLoading: eventsLoading, error: eventsError } =
     useEventSource({ currentYear: debouncedYear, stepSize: timeline.stepSize });
 
+  const territorySource = 'ohm' as const;
+
   const { territoryFeatures, refresh: refreshTerritories, isLoading: territoriesLoading, error: territoriesError } =
-    useTerritoriesSource({ currentYear: debouncedYear, stepSize: timeline.stepSize });
+    useTerritoriesSource({ currentYear: debouncedYear, stepSize: timeline.stepSize, source: 'hb' });
+
+  const { links: ohmLinks, refresh: refreshOhmLinks } = useOhmLinks();
 
   // Map of id → patched feature for manual edits (applied on top of base features)
   const [overrideMap, setOverrideMap] = useState<Map<string, GeoJSON.Feature>>(new Map());
@@ -107,9 +115,10 @@ export default function App() {
   const [hiddenNations, setHiddenNations] = useState<Map<string, number>>(new Map());
   // Unmatched territory the user clicked — shows the mapping assignment modal
   const [mappingTarget, setMappingTarget] = useState<{ hbName: string; polygonId: string; yearStart: number; yearEnd: number | null } | null>(null);
+  // OHM territory the user clicked — shows the OHM polity assignment modal
+  const [ohmMappingTarget, setOhmMappingTarget] = useState<{ ohmName: string; ohmWikidataQid: string | null } | null>(null);
   // QID of the major event chip selected in the bottom bar (null = no filter)
   const [majorEventFilter, setMajorEventFilter] = useState<string | null>(null);
-  const [hasMajorEvents, setHasMajorEvents] = useState(false);
   const [fitBoundsRequest, setFitBoundsRequest] = useState<{ bbox: [number,number,number,number]; id: number } | null>(null);
   const fitBoundsIdRef = useRef(0);
   // Mappings saved in this session: polygonId → { polityId, polityName }
@@ -196,8 +205,14 @@ export default function App() {
     return suppressed;
   }, [currentYear]); // staticFeatures is a module-level constant
 
+  // OHM mode: polity IDs matched to a currently-visible OHM territory (set by MapView after rebuildColors)
+  const [ohmMatchedPolityIds, setOhmMatchedPolityIds] = useState<Set<string>>(new Set());
+
   // Polity IDs that have a matched, time-visible territory — their capital dot is redundant
   const polityIdsWithTerritory = useMemo(() => {
+    if (territorySource === 'ohm') {
+      return ohmMatchedPolityIds;
+    }
     const ids = new Set<string>();
     for (const f of patchedTerritories.features) {
       const p = f.properties as { polityId: string | null; yearStart: number; yearEnd: number | null };
@@ -207,7 +222,7 @@ export default function App() {
       ids.add(p.polityId);
     }
     return ids;
-  }, [patchedTerritories, currentYear]);
+  }, [territorySource, ohmMatchedPolityIds, patchedTerritories, currentYear]);
 
   // Derive the GeoJSON passed to MapView: static features + windowed events + overrides
   const geojson = useMemo((): GeoJSON.FeatureCollection => {
@@ -273,6 +288,16 @@ export default function App() {
     setLocalPolygonUnlinks((prev) => new Set(prev).add(polygonId));
   }, []);
 
+  const handleUnlinkOhmTerritory = useCallback((ohmName: string) => {
+    const link = ohmLinks.find((l) => l.ohmName === ohmName && l.polityId && !l.explicitlyUnlinked);
+    if (link) {
+      unlinkOhmLink(link.id).catch(console.error);
+    } else {
+      suppressOhmLink(ohmName).catch(console.error);
+    }
+    refreshOhmLinks();
+  }, [ohmLinks, refreshOhmLinks]);
+
   const handleToggleHiddenNation = useCallback((polityId: string) => {
     if (hiddenNations.has(polityId)) {
       removeHiddenNation(polityId).catch(console.error);
@@ -311,12 +336,13 @@ export default function App() {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (mappingTarget) { setMappingTarget(null); return; }
+      if (ohmMappingTarget) { setOhmMappingTarget(null); return; }
       if (showWelcome) { setShowWelcome(false); return; }
       setSelectedFeature(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [mappingTarget, showWelcome]);
+  }, [mappingTarget, ohmMappingTarget, showWelcome]);
 
   const navigate = useCallback((to: string) => {
     window.history.pushState({}, '', to);
@@ -378,8 +404,10 @@ export default function App() {
     });
   }, []);
 
-  const handleNavigateToFeature = useCallback((feature: FeatureProperties) => {
-    if (feature.yearStart !== null) {
+  const handleNavigateToFeature = useCallback((feature: FeatureProperties, center?: [number, number]) => {
+    // Only seek the timeline for events and polities — locations (cities/regions) exist across
+    // all time and should never cause a jump to their founding date.
+    if (feature.featureType === 'event' && feature.yearStart !== null) {
       const featureStart = encodeDate(feature.yearStart, feature.monthStart ?? 1, feature.dayStart ?? 1);
       const featureEnd   = feature.yearEnd != null
         ? encodeDate(feature.yearEnd, feature.monthEnd ?? 12, feature.dayEnd ?? 31)
@@ -407,8 +435,50 @@ export default function App() {
       });
     }
     navigate('/');
-    setZoomRequest({ feature, id: ++zoomIdRef.current });
+    setZoomRequest({ feature, id: ++zoomIdRef.current, center });
   }, [timeline, navigate]);
+
+  const handleStartStory = useCallback(async (slug: string) => {
+    setSelectedFeature(null);
+    timeline.setStepSize(STEP_DAY);
+    const result = await loadStory(slug);
+    if (!result) return;
+    const firstBeat = result.story.beats[0];
+    if (firstBeat?.event_qid) {
+      const feature = result.beatEvents.get(firstBeat.event_qid);
+      if (feature) handleNavigateToFeature(feature, result.beatCenters.get(firstBeat.event_qid));
+    }
+  }, [loadStory, handleNavigateToFeature, timeline]);
+
+  const handleStoryBeatNavigate = useCallback((index: number, targetBeatEvents: typeof beatEvents, targetBeatCenters: typeof beatCenters) => {
+    if (!story) return;
+    const beat = story.beats[index];
+    if (!beat?.event_qid) return;
+    const feature = targetBeatEvents.get(beat.event_qid);
+    if (feature) handleNavigateToFeature(feature, targetBeatCenters.get(beat.event_qid));
+  }, [story, handleNavigateToFeature]);
+
+  const handleNextBeat = useCallback(() => {
+    if (!story) return;
+    const next = Math.min(beatIndex + 1, story.beats.length - 1);
+    if (next === beatIndex) return;
+    setBeatIndex(next);
+    handleStoryBeatNavigate(next, beatEvents, beatCenters);
+  }, [story, beatIndex, setBeatIndex, beatEvents, beatCenters, handleStoryBeatNavigate]);
+
+  const handlePrevBeat = useCallback(() => {
+    if (!story) return;
+    const prev = Math.max(beatIndex - 1, 0);
+    if (prev === beatIndex) return;
+    setBeatIndex(prev);
+    handleStoryBeatNavigate(prev, beatEvents, beatCenters);
+  }, [story, beatIndex, setBeatIndex, beatEvents, beatCenters, handleStoryBeatNavigate]);
+
+  const handleJumpToBeat = useCallback((index: number) => {
+    if (!story) return;
+    setBeatIndex(index);
+    handleStoryBeatNavigate(index, beatEvents, beatCenters);
+  }, [story, setBeatIndex, beatEvents, beatCenters, handleStoryBeatNavigate]);
 
   const handleDataExplorerFeatureUpdated = useCallback((featureId: string, updates: Partial<FeatureProperties>) => {
     setOverrideMap((om) => {
@@ -456,29 +526,37 @@ export default function App() {
         editorMode={editorMode}
         selectedLang={selectedLang}
         onLangChange={handleLangChange}
+        windowInfo={windowInfo}
+        eventsLoading={eventsLoading}
+        eventsError={eventsError}
+        territoriesLoading={territoriesLoading}
+        territoriesError={territoriesError}
+        seedLoading={seedLoading}
+        locationCount={locationCount}
+        polityCount={polityCount}
       />
 
-      <div style={{ position: 'absolute', inset: `69px 0 ${TIMELINE_BAR_HEIGHT + (hasMajorEvents ? MAJOR_EVENTS_PANEL_HEIGHT : 0)}px 0` }}>
-        <DataOverlay
-          windowInfo={windowInfo}
-          isLoading={eventsLoading}
-          error={eventsError}
-          territoriesLoading={territoriesLoading}
-          territoriesError={territoriesError}
-          seedLoading={seedLoading}
-          locationCount={locationCount}
-          polityCount={polityCount}
-          onOpenAbout={() => navigate('/about')}
-        />
-        <UnlocatedEventsPanel
-          eventFeatures={eventFeatures}
-          currentDateInt={timeline.currentDateInt}
-          stepSize={timeline.stepSize}
-          onSelectFeature={(props) => {
-            setSelectedFeature(props);
-            setStack({ index: 0, total: 1 });
-          }}
-        />
+      <div style={{ position: 'absolute', inset: `69px 0 ${TIMELINE_BAR_HEIGHT}px 0` }}>
+        <div style={{ position: 'absolute', bottom: 10, left: 10, zIndex: 10, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none', maxWidth: 240 }}>
+          <UnlocatedEventsPanel
+            eventFeatures={eventFeatures}
+            currentDateInt={timeline.currentDateInt}
+            stepSize={timeline.stepSize}
+            onSelectFeature={(props) => {
+              setSelectedFeature(props);
+              setStack({ index: 0, total: 1 });
+            }}
+          />
+          <MajorEventsPanel
+            geojson={geojson}
+            currentDateInt={timeline.currentDateInt}
+            stepSize={timeline.stepSize}
+            onNavigateToFeature={handleNavigateToFeature}
+            selectedQid={majorEventFilter}
+            onSelectQid={setMajorEventFilter}
+            onFitBounds={(bbox) => setFitBoundsRequest({ bbox, id: ++fitBoundsIdRef.current })}
+          />
+        </div>
         <MapView
           geojson={geojson}
           territoriesGeojson={patchedTerritories}
@@ -498,34 +576,42 @@ export default function App() {
           majorEventFilter={majorEventFilter}
           onMapReady={setMapInstance}
           editorMode={editorMode}
+          territorySource={territorySource}
+          ohmLinks={ohmLinks}
+          onOhmTerritoryClick={(ohmName, ohmWikidataQid) => setOhmMappingTarget({ ohmName, ohmWikidataQid })}
+          onUnlinkOhmTerritory={handleUnlinkOhmTerritory}
+          onOhmMatchedPolityIds={setOhmMatchedPolityIds}
         />
       </div>
 
-      <InfoPanel
-        feature={selectedFeature}
-        stack={stack}
-        onClose={handleClosePanel}
-        geojson={geojson}
-        onNavigateToFeature={handleNavigateToFeature}
-        wikiAuth={wikiAuth}
-        onAuth={setWikiAuth}
-        onFeatureUpdated={handleFeatureUpdated}
-        hiddenNations={hiddenNations}
-        onToggleHiddenNation={handleToggleHiddenNation}
-        onHideFeature={handleHideFeature}
-        selectedLang={selectedLang}
-      />
-
-      <MajorEventsPanel
-        geojson={geojson}
-        currentDateInt={timeline.currentDateInt}
-        stepSize={timeline.stepSize}
-        onNavigateToFeature={handleNavigateToFeature}
-        selectedQid={majorEventFilter}
-        onSelectQid={setMajorEventFilter}
-        onFitBounds={(bbox) => setFitBoundsRequest({ bbox, id: ++fitBoundsIdRef.current })}
-        onHasEvents={setHasMajorEvents}
-      />
+      {story ? (
+        <StoryPanel
+          story={story}
+          beatIndex={beatIndex}
+          currentBeat={currentBeat}
+          currentBeatEvent={currentBeatEvent}
+          onNext={handleNextBeat}
+          onPrev={handlePrevBeat}
+          onJumpToBeat={handleJumpToBeat}
+          onExit={exitStory}
+        />
+      ) : (
+        <InfoPanel
+          feature={selectedFeature}
+          stack={stack}
+          onClose={handleClosePanel}
+          geojson={geojson}
+          onNavigateToFeature={handleNavigateToFeature}
+          wikiAuth={wikiAuth}
+          onAuth={setWikiAuth}
+          onFeatureUpdated={handleFeatureUpdated}
+          hiddenNations={hiddenNations}
+          onToggleHiddenNation={handleToggleHiddenNation}
+          onHideFeature={handleHideFeature}
+          selectedLang={selectedLang}
+          onStartStory={handleStartStory}
+        />
+      )}
 
       <TimelineBar
         currentDateInt={timeline.currentDateInt}
@@ -565,6 +651,24 @@ export default function App() {
           onDeleted={() => {
             setMappingTarget(null);
             refreshTerritories();
+          }}
+        />
+      )}
+      {ohmMappingTarget && (
+        <OhmMappingModal
+          ohmName={ohmMappingTarget.ohmName}
+          ohmWikidataQid={ohmMappingTarget.ohmWikidataQid}
+          polities={polityFeatures}
+          onClose={() => setOhmMappingTarget(null)}
+          onPolityImported={(feature) => {
+            setSeedFeatureCollection((prev) => ({
+              ...prev,
+              features: [...prev.features, feature],
+            }));
+          }}
+          onSaved={() => {
+            setOhmMappingTarget(null);
+            refreshOhmLinks();
           }}
         />
       )}

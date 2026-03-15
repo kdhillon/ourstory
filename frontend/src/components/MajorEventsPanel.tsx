@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useTranslations } from '../lib/TranslationContext';
 import type { FeatureProperties } from '../types';
 import { eventDateRange, STEP_YEAR } from '../hooks/useTimeline';
@@ -13,8 +13,6 @@ interface MajorEvent {
   count: number;
 }
 
-const PANEL_HEIGHT = 44;
-
 export type BBox = [number, number, number, number]; // [west, south, east, north]
 
 interface Props {
@@ -25,12 +23,11 @@ interface Props {
   selectedQid: string | null;
   onSelectQid: (qid: string | null) => void;
   onFitBounds?: (bbox: BBox) => void;
-  onHasEvents?: (has: boolean) => void;
 }
 
-export { PANEL_HEIGHT as MAJOR_EVENTS_PANEL_HEIGHT };
+export function MajorEventsPanel({ geojson, currentDateInt, stepSize, selectedQid, onSelectQid, onFitBounds }: Props) {
+  const [collapsed, setCollapsed] = useState(false);
 
-export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigateToFeature, selectedQid, onSelectQid, onFitBounds, onHasEvents }: Props) {
   const majorEvents = useMemo<MajorEvent[]>(() => {
     const counts = new Map<string, MajorEvent>();
     const effectiveNow = currentDateInt + stepSize - 1;
@@ -51,12 +48,7 @@ export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigate
         if (ex) {
           ex.count++;
         } else {
-          counts.set(parent.qid, {
-            qid: parent.qid,
-            title: parent.title,
-            slug: parent.slug ?? null,
-            count: 1,
-          });
+          counts.set(parent.qid, { qid: parent.qid, title: parent.title, slug: parent.slug ?? null, count: 1 });
         }
       }
     }
@@ -65,14 +57,12 @@ export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigate
   }, [geojson, currentDateInt, stepSize]);
 
   const handleClick = useCallback((ev: MajorEvent) => {
-    // Toggle: clicking the active filter deselects it
     if (ev.qid === selectedQid) {
       onSelectQid(null);
       return;
     }
     onSelectQid(ev.qid);
 
-    // Compute bbox of all currently active events belonging to this major event
     if (!onFitBounds) return;
     const effectiveNow = currentDateInt + stepSize - 1;
     let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
@@ -97,108 +87,81 @@ export function MajorEventsPanel({ geojson, currentDateInt, stepSize, onNavigate
     if (hasCoords) onFitBounds([minLon, minLat, maxLon, maxLat]);
   }, [selectedQid, onSelectQid, onFitBounds, geojson, currentDateInt, stepSize]);
 
-  useEffect(() => {
-    onHasEvents?.(majorEvents.length > 0);
-  }, [majorEvents.length > 0, onHasEvents]); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (majorEvents.length === 0) return null;
 
   return (
     <div style={{
-      position: 'fixed',
-      bottom: 64,
-      left: 0,
-      right: 0,
-      height: 44,
-      background: 'rgba(12, 17, 23, 0.88)',
-      backdropFilter: 'blur(10px)',
-      WebkitBackdropFilter: 'blur(10px)',
-      display: 'flex',
-      alignItems: 'stretch',
-      zIndex: 95,
-      borderTop: '1px solid rgba(255,255,255,0.07)',
+      background: '#ffffff',
+      borderRadius: 12,
+      border: '1px solid rgba(0,0,0,0.1)',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+      color: '#202122',
+      maxWidth: 240,
+      minWidth: collapsed ? 0 : 200,
+      pointerEvents: 'auto',
     }}>
-      {/* Fixed label — does not scroll */}
-      <div style={{
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 12px 0 16px',
-        color: 'rgba(255,255,255,0.35)',
-        fontSize: 10,
-        fontWeight: 700,
-        textTransform: 'uppercase',
-        letterSpacing: '0.1em',
-        borderRight: '1px solid rgba(255,255,255,0.09)',
-        whiteSpace: 'nowrap',
-      }}>
-        Major Events
+      {/* Header */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', cursor: 'pointer' }}
+        onClick={() => setCollapsed((v) => !v)}
+      >
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#54595d', flex: 1 }}>
+          {collapsed ? `Major Events (${majorEvents.length})` : 'Major Events'}
+        </span>
+        <span style={{ fontSize: 18, color: '#9a9a9a', lineHeight: 1 }}>
+          {collapsed ? '▴' : '▾'}
+        </span>
       </div>
 
-      {/* Scrollable chips */}
-      <div
-        className="no-scrollbar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          overflowX: 'auto',
-          padding: '0 14px',
-          flex: 1,
-        }}
-      >
-        {majorEvents.map((ev) => (
-          <Chip key={ev.qid} ev={ev} selected={ev.qid === selectedQid} onClick={handleClick} />
-        ))}
-      </div>
+      {/* Body */}
+      {!collapsed && (
+        <div style={{
+          maxHeight: 280,
+          overflowY: 'auto',
+          padding: '0 6px 8px',
+          borderTop: '1px solid rgba(0,0,0,0.06)',
+        }}>
+          {majorEvents.map((ev) => (
+            <EventRow key={ev.qid} ev={ev} selected={ev.qid === selectedQid} onClick={handleClick} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function Chip({ ev, selected, onClick }: { ev: MajorEvent; selected: boolean; onClick: (ev: MajorEvent) => void }) {
+function EventRow({ ev, selected, onClick }: { ev: MajorEvent; selected: boolean; onClick: (ev: MajorEvent) => void }) {
   const translationMap = useTranslations();
-  const bg       = selected ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.06)';
-  const border   = selected ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.11)';
-  const color    = selected ? '#0c1117'                : 'rgba(255,255,255,0.85)';
-  const cntColor = selected ? 'rgba(0,0,0,0.4)'       : 'rgba(255,255,255,0.38)';
+  const [hovered, setHovered] = useState(false);
   return (
     <button
       onClick={() => onClick(ev)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        flexShrink: 0,
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
         gap: 7,
-        background: bg,
-        border: `1px solid ${border}`,
-        borderRadius: 999,
-        color,
-        fontSize: 12.5,
-        lineHeight: 1,
-        padding: '4px 11px 4px 11px',
+        width: '100%',
+        background: selected ? 'rgba(51,102,204,0.08)' : hovered ? 'rgba(0,0,0,0.04)' : 'transparent',
+        border: 'none',
+        borderRadius: 4,
+        padding: '5px 8px',
         cursor: 'pointer',
-        whiteSpace: 'nowrap',
-        fontWeight: selected ? 600 : 400,
-        transition: 'background 0.12s, border-color 0.12s, color 0.12s',
-      }}
-      onMouseEnter={(e) => {
-        if (selected) return;
-        e.currentTarget.style.background = 'rgba(255,255,255,0.13)';
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.22)';
-      }}
-      onMouseLeave={(e) => {
-        if (selected) return;
-        e.currentTarget.style.background = bg;
-        e.currentTarget.style.borderColor = border;
+        textAlign: 'left',
+        fontFamily: 'inherit',
       }}
     >
-      {translationMap?.[ev.qid] ?? ev.title}
+      <span style={{ fontSize: 13, color: selected ? '#3366cc' : '#202122', lineHeight: 1.4, flex: 1, fontWeight: selected ? 600 : 400 }}>
+        {translationMap?.[ev.qid] ?? ev.title}
+      </span>
       <span style={{
         fontSize: 11,
         fontWeight: 600,
-        color: cntColor,
+        color: selected ? '#3366cc' : 'rgba(0,0,0,0.35)',
         minWidth: 14,
         textAlign: 'right',
+        flexShrink: 0,
       }}>
         {ev.count}
       </span>
