@@ -201,6 +201,8 @@ interface Props {
   onOhmTerritoryClick?: (ohmName: string, ohmWikidataQid: string | null) => void;
   /** Called when user clicks × to unlink an OHM territory from its polity */
   onUnlinkOhmTerritory?: (ohmName: string) => void;
+  /** Called after rebuildColors with the set of polity IDs that are matched to a visible OHM territory */
+  onOhmMatchedPolityIds?: (ids: Set<string>) => void;
 }
 
 
@@ -252,7 +254,7 @@ interface HoveredLabel {
   y: number;
 }
 
-export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, showBorders, showOtherPolities, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter, onMapReady, editorMode, territorySource = 'hb', ohmLinks, onOhmTerritoryClick, onUnlinkOhmTerritory }: Props) {
+export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize, activeCategories, showBorders, showOtherPolities, onSelectFeature, zoomRequest, fitBoundsRequest, hiddenNations, suppressedPolityIds, polityIdsWithTerritory, onUnmatchedTerritoryClick, onUnlinkPolygon, majorEventFilter, onMapReady, editorMode, territorySource = 'hb', ohmLinks, onOhmTerritoryClick, onUnlinkOhmTerritory, onOhmMatchedPolityIds }: Props) {
   const translationMap = useTranslations();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -283,10 +285,13 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   // always shows the × at the same spot. Cleared on map move to avoid stale positions.
   const hbLabelPosCache = useRef<Record<string, { x: number; y: number }>>({});
   const ohmLabelPosCache = useRef<Record<string, { x: number; y: number }>>({});
+  const rebuildColorsRef = useRef<() => void>(() => {});
   const onUnlinkPolygonRef = useRef(onUnlinkPolygon);
   onUnlinkPolygonRef.current = onUnlinkPolygon;
   const onUnlinkOhmTerritoryRef = useRef(onUnlinkOhmTerritory);
   onUnlinkOhmTerritoryRef.current = onUnlinkOhmTerritory;
+  const onOhmMatchedPolityIdsRef = useRef(onOhmMatchedPolityIds);
+  onOhmMatchedPolityIdsRef.current = onOhmMatchedPolityIds;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -690,14 +695,16 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
     const rebuildColors = () => {
       if (!map.getLayer('ohm-fills')) return;
 
-      // Build lowercase polity-name → color lookup from loaded polities (always fresh via ref)
+      // Build lowercase polity-name → color/id lookup from loaded polities (always fresh via ref)
       // Note: avoid `new Map()` — `Map` is shadowed by the maplibre-gl import.
       const polityColorByName: Record<string, string> = {};
+      const polityIdByName: Record<string, string> = {};
       for (const f of geojsonRef.current.features) {
         const p = f.properties as FeatureProperties;
         if (p.featureType !== 'polity') continue;
         const color = CATEGORY_COLORS[(p.polityType as keyof typeof CATEGORY_COLORS) ?? 'other'] ?? CATEGORY_COLORS.other;
         polityColorByName[p.title.toLowerCase()] = color;
+        polityIdByName[p.title.toLowerCase()] = p.id;
       }
 
       // queryRenderedFeatures can throw if the map's WebGL painter isn't ready.
@@ -721,22 +728,28 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
       const stripDisplay = (s: string) => s.replace(DATE_SUFFIX_RE, '').trim();
       const stripSuffix = (s: string) => stripDisplay(s).toLowerCase();
 
-      // Build base-name → color lookup from manual links.
+      // Build base-name → color/polityId/polityName lookup from manual links.
       // Also track suppressed names (explicitlyUnlinked=TRUE) so auto-match skips them.
       const linkColorByBase: Record<string, string> = {};
+      const linkPolityIdByBase: Record<string, string> = {};
+      const linkPolityNameByBase: Record<string, string> = {};
       const suppressedByBase = new Set<string>();
       for (const link of ohmLinksRef.current) {
         if (!link.ohmName) continue;
         if (link.explicitlyUnlinked) {
           suppressedByBase.add(stripSuffix(link.ohmName));
         } else if (link.polityId) {
-          linkColorByBase[stripSuffix(link.ohmName)] = link.color;
+          const key = stripSuffix(link.ohmName);
+          linkColorByBase[key] = link.color;
+          linkPolityIdByBase[key] = link.polityId;
+          if (link.polityName) linkPolityNameByBase[key] = link.polityName;
         }
       }
 
       // For each rendered feature: manual link (by base name) takes priority over auto-match.
       // Suppressed names are skipped entirely.
       const seenNames = new Set<string>();
+      const matchedPolityIds = new Set<string>();
       for (const f of rendered) {
         const fullName = (f.properties?.name_en ?? f.properties?.name ?? '') as string;
         if (!fullName || seenNames.has(fullName)) continue;
@@ -748,11 +761,15 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
         if (color) {
           fillPairs.push(fullName, color);
           labelPairs.push(fullName, '#f5c842');
+          // Track which polity this territory is matched to (for star suppression)
+          const polityId = linkPolityIdByBase[base] ?? polityIdByName[base];
+          if (polityId) matchedPolityIds.add(polityId);
         }
-        // Always remap the label text: fullName → displayName (strips date suffix, keeps casing).
+        // Remap label text: manual DB link uses polity name; otherwise just strip date suffix.
         // Even uncoloured features get their suffix stripped.
-        if (fullName !== displayName) {
-          textPairs.push(fullName, displayName);
+        const labelName = linkPolityNameByBase[base] ?? displayName;
+        if (fullName !== labelName) {
+          textPairs.push(fullName, labelName);
         }
       }
 
@@ -772,7 +789,11 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
       map.setPaintProperty('ohm-borders', 'line-color', fillColor);
       map.setPaintProperty('ohm-labels', 'text-color', labelColor);
       map.setLayoutProperty('ohm-labels', 'text-field', labelText);
+
+      onOhmMatchedPolityIdsRef.current?.(matchedPolityIds);
     };
+
+    rebuildColorsRef.current = rebuildColors;
 
     // Rebuild when OHM tiles finish loading. 'sourcedata' does not fire when
     // setPaintProperty is called, so there is no infinite loop.
@@ -790,6 +811,11 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-run rebuildColors whenever ohmLinks changes (e.g. after an unlink/suppress).
+  useEffect(() => {
+    rebuildColorsRef.current();
+  }, [ohmLinks]);
+
   const onSelectRef = useRef(onSelectFeature);
   onSelectRef.current = onSelectFeature;
   const onUnmatchedTerritoryRef = useRef(onUnmatchedTerritoryClick);
@@ -799,6 +825,7 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
   const editorModeRef = useRef(editorMode);
   editorModeRef.current = editorMode;
   const stackRef = useRef<{ ids: string[]; index: number } | null>(null);
+  const ohmStackRef = useRef<{ names: string[]; index: number } | null>(null);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -822,52 +849,86 @@ export function MapView({ geojson, territoriesGeojson, currentDateInt, stepSize,
       //   2. Manual ohm_territory_links override (name-keyed, for renames / overrides)
       //   3. No match → open OhmMappingModal
       if (top.layer.id === 'ohm-fills') {
-        const ohmName = (top.properties?.name_en ?? top.properties?.name ?? '') as string;
-        const wikidataQid = top.properties?.wikidata as string | null;
-        // Strip trailing date suffix: "Republic of Venice (1510-1571)" → "Republic of Venice"
-        const strippedName = ohmName.replace(/\s*\(\d{1,4}(?:\s*[-–]\s*(?:\d{1,4}|present))?\)\s*$/, '').trim();
+        // Re-query specifically for ohm-fills to get ALL overlapping polygons at this point.
+        const allOhmFeatures = map.queryRenderedFeatures(e.point, { layers: ['ohm-fills'] });
+        const DATE_SUFFIX = /\s*\(\d{1,4}(?:\s*[-–]\s*(?:\d{1,4}|present))?\)\s*$/;
+        const stripName = (s: string) => s.replace(DATE_SUFFIX, '').trim();
 
-        // 1. Auto-match by stripped name against polity titles
-        const polityByName = strippedName
-          ? geojsonRef.current.features.find(
-              (f) => (f.properties as FeatureProperties).featureType === 'polity'
-                  && (f.properties as FeatureProperties).title?.toLowerCase() === strippedName.toLowerCase(),
-            )
-          : null;
-        if (polityByName) {
-          const raw = { ...polityByName.properties } as Record<string, unknown>;
+        // Resolve an OHM tile feature to its matched polity in geojson (DB link takes priority).
+        const resolvePolity = (f: maplibregl.MapGeoJSONFeature) => {
+          const stripped = stripName((f.properties?.name_en ?? f.properties?.name ?? '') as string);
+          const link = ohmLinksRef.current.find((l) => l.ohmName === stripped && !l.explicitlyUnlinked);
+          if (link?.polityId)
+            return geojsonRef.current.features.find((p) => (p.properties as FeatureProperties).id === link.polityId) ?? null;
+          const isSuppressed = ohmLinksRef.current.some((l) => l.ohmName === stripped && l.explicitlyUnlinked);
+          if (isSuppressed) return null;
+          return geojsonRef.current.features.find(
+            (p) => (p.properties as FeatureProperties).featureType === 'polity'
+              && (p.properties as FeatureProperties).title?.toLowerCase() === stripped.toLowerCase(),
+          ) ?? null;
+        };
+
+        const polityDuration = (f: maplibregl.MapGeoJSONFeature) => {
+          const polity = resolvePolity(f);
+          if (!polity) return Infinity;
+          const p = polity.properties as FeatureProperties;
+          return (p.yearEnd ?? 9999) - (p.yearStart ?? 0);
+        };
+
+        // Build sorted list of ALL unique OHM features at this point.
+        // Matched polities come first (sorted by admin_level desc, then polity duration asc).
+        // Unmatched (no polity, not suppressed) come after — clicking them opens the mapping modal.
+        // Deduplicate: matched by polity id, unmatched by stripped name.
+        const seenKeys = new Set<string>();
+        type OhmEntry = { feature: maplibregl.MapGeoJSONFeature; polity: GeoJSON.Feature | null; strippedName: string };
+        const allEntries: OhmEntry[] = allOhmFeatures
+          .map((f) => ({
+            feature: f,
+            polity: resolvePolity(f),
+            strippedName: stripName((f.properties?.name_en ?? f.properties?.name ?? '') as string),
+          }))
+          .filter(({ polity, strippedName }) => {
+            // Exclude suppressed (explicitly unlinked with no replacement)
+            const isSuppressed = !polity && ohmLinksRef.current.some((l) => l.ohmName === strippedName && l.explicitlyUnlinked);
+            if (isSuppressed) return false;
+            // Deduplicate by polity id (matched) or stripped name (unmatched)
+            const key = polity ? `polity:${(polity.properties as FeatureProperties).id}` : `name:${strippedName}`;
+            if (seenKeys.has(key)) return false;
+            seenKeys.add(key);
+            return true;
+          })
+          .sort((a, b) => {
+            // Matched polities before unmatched
+            if (!!a.polity !== !!b.polity) return a.polity ? -1 : 1;
+            // Among matched: highest admin_level first, then shortest polity duration
+            const levelDiff = Number(b.feature.properties?.admin_level ?? 0) - Number(a.feature.properties?.admin_level ?? 0);
+            if (levelDiff !== 0) return levelDiff;
+            return polityDuration(a.feature) - polityDuration(b.feature);
+          });
+
+        if (allEntries.length === 0) return;
+
+        // Cycle through entries on repeated clicks at the same spot.
+        const names = allEntries.map((e) => e.strippedName);
+        let idx = 0;
+        if (ohmStackRef.current?.names.length === names.length && ohmStackRef.current.names.every((n, i) => n === names[i])) {
+          idx = (ohmStackRef.current.index + 1) % names.length;
+        }
+        ohmStackRef.current = { names, index: idx };
+
+        const { feature: chosen, polity: chosenPolity, strippedName: chosenName } = allEntries[idx];
+
+        if (chosenPolity) {
+          const raw = { ...chosenPolity.properties } as Record<string, unknown>;
           for (const key of ['categories', 'partOfResolved', 'wikidataClasses'] as const) {
             if (typeof raw[key] === 'string') {
               try { raw[key] = JSON.parse(raw[key] as string); } catch { /* leave as-is */ }
             }
           }
-          onSelectRef.current(raw as unknown as FeatureProperties, { index: 0, total: 1 });
-          return;
-        }
-
-        // 2. Manual override from ohm_territory_links (matched by base name, since links store stripped names)
-        const link = ohmLinksRef.current.find(
-          (l) => l.ohmName === strippedName && !l.explicitlyUnlinked,
-        );
-        if (link?.polityId) {
-          const polityFeature = geojsonRef.current.features.find(
-            (f) => (f.properties as FeatureProperties).id === link.polityId,
-          );
-          if (polityFeature) {
-            const raw = { ...polityFeature.properties } as Record<string, unknown>;
-            for (const key of ['categories', 'partOfResolved', 'wikidataClasses'] as const) {
-              if (typeof raw[key] === 'string') {
-                try { raw[key] = JSON.parse(raw[key] as string); } catch { /* leave as-is */ }
-              }
-            }
-            onSelectRef.current(raw as unknown as FeatureProperties, { index: 0, total: 1 });
-            return;
-          }
-        }
-
-        // 3. Not found — open mapping modal with the clean base name (no date suffix)
-        if (strippedName) {
-          onOhmTerritoryClickRef.current?.(strippedName, wikidataQid);
+          onSelectRef.current(raw as unknown as FeatureProperties, { index: idx, total: allEntries.length });
+        } else {
+          // Unmatched territory — open mapping modal
+          onOhmTerritoryClickRef.current?.(chosenName, chosen.properties?.wikidata as string | null);
         }
         return;
       }

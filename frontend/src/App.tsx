@@ -205,25 +205,24 @@ export default function App() {
     return suppressed;
   }, [currentYear]); // staticFeatures is a module-level constant
 
+  // OHM mode: polity IDs matched to a currently-visible OHM territory (set by MapView after rebuildColors)
+  const [ohmMatchedPolityIds, setOhmMatchedPolityIds] = useState<Set<string>>(new Set());
+
   // Polity IDs that have a matched, time-visible territory — their capital dot is redundant
   const polityIdsWithTerritory = useMemo(() => {
-    const ids = new Set<string>();
     if (territorySource === 'ohm') {
-      // In OHM mode, use polity links from OHM link table as proxy for territory coverage
-      for (const link of ohmLinks) {
-        if (link.polityId && !link.explicitlyUnlinked) ids.add(link.polityId);
-      }
-    } else {
-      for (const f of patchedTerritories.features) {
-        const p = f.properties as { polityId: string | null; yearStart: number; yearEnd: number | null };
-        if (!p.polityId) continue;
-        if (p.yearStart > currentYear) continue;
-        if (p.yearEnd !== null && currentYear > p.yearEnd) continue;
-        ids.add(p.polityId);
-      }
+      return ohmMatchedPolityIds;
+    }
+    const ids = new Set<string>();
+    for (const f of patchedTerritories.features) {
+      const p = f.properties as { polityId: string | null; yearStart: number; yearEnd: number | null };
+      if (!p.polityId) continue;
+      if (p.yearStart > currentYear) continue;
+      if (p.yearEnd !== null && currentYear > p.yearEnd) continue;
+      ids.add(p.polityId);
     }
     return ids;
-  }, [territorySource, ohmLinks, patchedTerritories, currentYear]);
+  }, [territorySource, ohmMatchedPolityIds, patchedTerritories, currentYear]);
 
   // Derive the GeoJSON passed to MapView: static features + windowed events + overrides
   const geojson = useMemo((): GeoJSON.FeatureCollection => {
@@ -581,6 +580,7 @@ export default function App() {
           ohmLinks={ohmLinks}
           onOhmTerritoryClick={(ohmName, ohmWikidataQid) => setOhmMappingTarget({ ohmName, ohmWikidataQid })}
           onUnlinkOhmTerritory={handleUnlinkOhmTerritory}
+          onOhmMatchedPolityIds={setOhmMatchedPolityIds}
         />
       </div>
 

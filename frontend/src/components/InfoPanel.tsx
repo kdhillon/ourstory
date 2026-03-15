@@ -530,9 +530,6 @@ export function InfoPanel({ feature, stack, onClose, geojson, onNavigateToFeatur
           })()}
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {expanded && (
-            <button style={styles.iconBtn} onClick={() => setExpanded(false)} title="Collapse">←</button>
-          )}
           <button style={styles.iconBtn} onClick={onClose} title="Close">✕</button>
         </div>
       </div>
